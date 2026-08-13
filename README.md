@@ -1,59 +1,56 @@
 # scrollwm
 
-niri 式的 macOS **卷轴平铺窗口管理器**（scrollable tiling，PaperWM 范式）。
+[English](README.md) | [简体中文](README.zh-CN.md)
 
-窗口排成一条无限横向"纸带"，每个窗口占一列：新窗口在焦点列右侧插入，焦点移动时视口
-最小滚动露出焦点列，滚出视口的列停靠在屏幕边缘露出一条"纸边"。键盘驱动，TOML 配置。
+A niri-style **scrollable tiling window manager** for macOS (PaperWM paradigm).
 
-- 纯公开 Accessibility API（仅一个无害私有函数 `_AXUIElementGetWindow` 取窗口 ID）
-- **不需要关闭 SIP**，不注入任何进程
-- Swift 实现：布局引擎为纯函数库 `ScrollCore`（32 个单元测试），守护进程 `scrollwm`
+Windows are laid out on an infinitely wide horizontal "paper strip", one column per window. New windows open to the right of the focused column; moving focus scrolls the viewport just enough to reveal the focused column; columns that scroll out of view dock at the screen edge, leaving a thin "paper edge" visible. Keyboard-driven, TOML-configured.
 
-## MVP 边界
+- Pure public Accessibility API (one harmless private function, `_AXUIElementGetWindow`, used to fetch window IDs)
+- **No SIP disabling required** — nothing is injected into other processes
+- Swift: the layout engine is a pure-function library, `ScrollCore` (52 unit tests); the daemon is `scrollwm`
 
-单显示器（主屏）、单工作区（当前 Space）、无触控板手势、无动画、一列一窗。
-列内堆叠（consume/expel）、多工作区、多显示器、平滑手势滚动在路线图上。
+## MVP scope
 
-## 构建与运行
+Single display (main screen), single workspace (current Space), no trackpad gestures, one window per column.
+Column stacking (consume/expel), multiple workspaces, multiple displays, and smooth gesture scrolling are on the roadmap.
 
-要求：macOS 14+，Xcode 命令行工具（Swift 5.10+）。
+## Building & running
 
-### 方式一：打包成 App（推荐日常使用）
+Requirements: macOS 14+, Xcode Command Line Tools (Swift 5.10+).
+
+### Option 1: App bundle (recommended for daily use)
 
 ```bash
 cd scrollwm
-./scripts/make-app.sh           # 构建 + 组装 + 签名 dist/ScrollWM.app
+./scripts/make-app.sh           # build + assemble + sign dist/ScrollWM.app
 mv dist/ScrollWM.app /Applications/
 open /Applications/ScrollWM.app
 ```
 
-菜单栏应用（无 Dock 图标），自带应用图标；菜单里有**开机自启**开关
-（SMAppService，系统"登录项"中可见）。授权跟随 bundle，重新打包后一般无需重新授权。
+A menu bar app (no Dock icon) with its own app icon; the menu includes a **launch at login** toggle (SMAppService, visible in System Settings → Login Items). Permission follows the bundle, so after repackaging you usually don't need to grant again.
 
-### 方式二：裸二进制（适合开发调试）
+### Option 2: Bare binary (for development)
 
 ```bash
-./scripts/build.sh              # 构建 release 并 ad-hoc 签名
-# 输出 BINARY=<二进制路径>
+./scripts/build.sh              # build release and ad-hoc sign
+# prints BINARY=<binary path>
 
-<二进制路径> --check            # 查看辅助功能授权状态
-<二进制路径>                    # 前台启动（日志打到 stderr）
+<binary path> --check           # check Accessibility permission status
+<binary path>                   # run in foreground (logs to stderr)
 ```
 
-### 辅助功能授权
+### Accessibility permission
 
-- 从终端启动时，进程继承终端的辅助功能权限：若终端 App 已授权，直接可用（适合开发调试）。
-- 独立运行：首次启动会弹出系统授权引导，到
-  系统设置 → 隐私与安全性 → 辅助功能，把二进制加入并勾选。
-- 重新构建后系统可能要求重新授权（ad-hoc 签名的已知限制，脚本已用固定
-  identifier `com.scrollwm.daemon` 尽量减少这种情况）。
+- Launched from a terminal, the process inherits the terminal's Accessibility permission: if your terminal app is already authorized, it just works (great for development).
+- Running standalone: on first launch an authorization prompt guides you to System Settings → Privacy & Security → Accessibility, where you add and enable the binary.
+- After rebuilding, macOS may ask you to grant again (a known limitation of ad-hoc signing; the scripts use a fixed identifier `com.scrollwm.daemon` to minimize this).
 
-### 开机自启（可选）
+### Launch at login (optional)
 
-App 形式：直接用菜单栏里的"开机自启"开关。
+App form: use the "Launch at Login" toggle in the menu bar.
 
-裸二进制形式：保存为 `~/Library/LaunchAgents/com.scrollwm.daemon.plist` 后
-`launchctl load ~/Library/LaunchAgents/com.scrollwm.daemon.plist`：
+Bare binary form: save as `~/Library/LaunchAgents/com.scrollwm.daemon.plist`, then `launchctl load ~/Library/LaunchAgents/com.scrollwm.daemon.plist`:
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
@@ -63,42 +60,41 @@ App 形式：直接用菜单栏里的"开机自启"开关。
 <dict>
     <key>Label</key><string>com.scrollwm.daemon</string>
     <key>ProgramArguments</key>
-    <array><string>/绝对路径/scrollwm</string></array>
+    <array><string>/absolute/path/scrollwm</string></array>
     <key>RunAtLoad</key><true/>
     <key>KeepAlive</key><true/>
 </dict>
 </plist>
 ```
 
-## 默认键位
+## Default keybindings
 
-Alt(Option) 为默认 Mod 键，全部可在配置中改：
+Alt (Option) is the default mod key; everything is rebindable in the config:
 
-- `alt-left` / `alt-right`：焦点移到左列 / 右列（自动滚动露出）
-- `alt-h` / `alt-l`：同上，Vim 风格别名；可在配置中解绑
-- `alt-shift-h` / `alt-shift-l`：焦点列向左 / 右挪位
-- **Command + 拖动窗口**（niri Super+拖动）：按住 ⌘ 拖动平铺窗口，松手后按落点重排列序；不按 ⌘ 的拖动仍会回弹到纸带并吸收宽度
-- `alt-r`：循环宽度预设（1/3 → 1/2 → 2/3 → 回绕）
-- `alt-minus` / `alt-equal`：连续缩窄 / 加宽（步长 `resize_step`）
-- `ctrl-minus` / `ctrl-equal`（Ctrl+减号/加号）：窗口放大缩小——
-  平铺窗口调列宽；浮动窗口围绕中心等比缩放（每按一次约 ±10%）
-- `alt-f`：列全宽开关（再按恢复原宽）
-- `alt-c`：焦点列在视口居中
-- `alt-t`：浮动豁免开关（浮出/收回纸带）
-- `alt-q`：关闭窗口（等价点红点）
-- `alt-shift-r`：全量重扫并重排
+- `alt-left` / `alt-right`: move focus to the left / right column (auto-scrolls to reveal)
+- `alt-h` / `alt-l`: same as above, Vim-style aliases; can be unbound in config
+- `alt-shift-h` / `alt-shift-l`: move the focused column left / right
+- **⌘ + drag a window** (niri's Mod+drag): hold ⌘ and drag a tiled window; on release it reorders to the drop position. Dragging without ⌘ still snaps back to the strip and absorbs width changes
+- `alt-r`: cycle width presets (1/3 → 1/2 → 2/3 → wrap)
+- `alt-minus` / `alt-equal`: continuously narrow / widen (step `resize_step`)
+- `ctrl-minus` / `ctrl-equal`: zoom windows — tiled windows resize their column width; floating windows scale uniformly around their center (≈ ±10% per press)
+- `alt-f`: toggle full-width column (press again to restore)
+- `alt-c`: center the focused column in the viewport
+- `alt-t`: toggle floating exemption (float out of / back into the strip)
+- `alt-q`: close window (same as clicking the red button)
+- `alt-shift-r`: full rescan and retile
 
-菜单栏图标提供逃生门：暂停/恢复管理、立即重排、重载配置、退出。
+The menu bar icon is the escape hatch: pause/resume management, retile now, reload config, quit.
 
-## 配置
+## Configuration
 
-`~/.config/scrollwm/config.toml`，首次启动自动生成默认模板，保存后自动热重载：
+`~/.config/scrollwm/config.toml`, auto-generated with a default template on first launch, hot-reloaded on save:
 
 ```toml
 [gaps]
-inner = 6           # 列间距，可自由调整
-outer = 12          # 屏幕外边距
-screen_margin = 6   # 停靠列只露细纸边，避免看起来像窗口重叠
+inner = 6           # gap between columns, freely adjustable
+outer = 12          # margin at the screen edges
+screen_margin = 6   # docked columns show a thin paper edge, avoiding the look of overlapping windows
 
 [layout]
 width_presets = [0.33333, 0.5, 0.66667]
@@ -108,118 +104,108 @@ resize_step = 0.05
 [animation]
 enabled = true
 mode = "spring"
-# 与 niri horizontal-view-movement 默认值一致：临界阻尼、无回弹
-# 连续改目标时会继承当前速度。
+# Matches niri's horizontal-view-movement defaults: critically damped, no bounce.
+# Keeps inheriting the current velocity while the target keeps changing.
 damping_ratio = 1.0
 stiffness = 800
 epsilon = 0.0001
-# 兼容固定曲线：mode = "easing" 时使用
+# For fixed curves: used when mode = "easing"
 # duration_ms = 240
 # curve = "ease-out-quint"
 
 [focus_ring]
 enabled = true
-width = 3          # 蓝紫渐变亮边宽度（1...8）
-glow_radius = 9    # 外辉光半径（0...24）
+width = 3          # blue-purple gradient border width (1...8)
+glow_radius = 9    # outer glow radius (0...24)
 
 [compositor]
-enabled = false     # 合成器级动画（SkyLight）。需关闭 SIP 并注入 Dock，
-                    # 见 docs/COMPOSITOR-SETUP.md；payload 未就绪时自动回退 AX
+enabled = false     # compositor-level animation (SkyLight). Requires SIP off and Dock injection,
+                    # see docs/COMPOSITOR-SETUP.md; falls back to AX when the payload isn't ready
 
 [apps]
-ignore = []         # 不接管的 bundle id，如 ["com.apple.systempreferences"]
+ignore = []         # bundle IDs to leave alone, e.g. ["com.apple.systempreferences"]
 
 [bindings]
-# 默认键位 + 用户覆盖；可绑定任意已支持的组合，"none" 解绑默认键位。
+# Default bindings + user overrides; any supported combo can be bound, "none" unbinds defaults.
 "alt-left" = "focus-left"
 "alt-right" = "focus-right"
-"alt-h" = "none"             # 示例：解绑内置 Vim 风格别名
-"alt-w" = "cycle-width"      # 示例：增加一个自定义键位
-"alt-q" = "none"             # 示例：解绑默认的关窗键
-# 动作名：focus-left/right, move-left/right, cycle-width, grow-width,
+"alt-h" = "none"             # example: unbind the built-in Vim-style alias
+"alt-w" = "cycle-width"      # example: add a custom binding
+"alt-q" = "none"             # example: unbind the default close key
+# Actions: focus-left/right, move-left/right, cycle-width, grow-width,
 # shrink-width, toggle-full-width, center-column, toggle-float,
 # close-window, retile, none
-# 键名补充：equal 即加号键（plus 为其别名），kpplus/kpminus 为数字小键盘加减
+# Key name notes: equal is the plus key (plus is an alias), kpplus/kpminus are the keypad +/- keys
 ```
 
-## 行为约定
+## Behavior conventions
 
-- 只接管标准窗口（`AXStandardWindow`）；对话框、面板、PIP、原生全屏一律不碰。
-- 尺寸不可调的窗口自动浮动豁免。
-- 用户拖动窗口：松手后位置回弹到纸带布局；**手动调宽会被吸收为列宽**（niri 交互式调宽语义）。
-- 最小化窗口离开纸带，还原后在焦点右侧回归。
-- Space 切换 / App 隐藏时自动对账（当前 Space 之外的窗口不管理）。
-- 退出时窗口保持当前位置，不做恢复。
+- Only standard windows (`AXStandardWindow`) are managed; dialogs, panels, PiP, and native fullscreen are never touched.
+- Windows that can't be resized are automatically floating-exempt.
+- Dragging a window: on release it snaps back to the strip layout; **manual width changes are absorbed as column width** (niri's interactive-resize semantics).
+- Minimized windows leave the strip; on restore they rejoin to the right of the focused column.
+- Space switches / app hides trigger a reconciliation (windows outside the current Space are not managed).
+- On quit, windows keep their current positions; no restore.
 
-## 手动 QA 清单
+## Manual QA checklist
 
-构建后建议走一遍（TextEdit / 终端 / 浏览器开 5+ 窗口）：
+After building, walk through this (TextEdit / Terminal / browser with 5+ windows):
 
-1. 启动后既有窗口按从左到右顺序入列，布局立即生效
-2. 新开窗口插在焦点列右侧并获得焦点，视口滚动露出
-3. `alt-left/right`（或 `alt-h/l`）沿纸带走焦点，跨出视口时发生最小滚动；点击/Cmd-Tab 聚焦停靠列同样触发滚动
-4. `alt-shift-h/l` 挪列，焦点跟随
-5. `alt-r` 宽度循环；`alt-minus/equal` 连续调宽；`alt-f` 全宽往返；`alt-c` 居中
-6. 关闭窗口（`alt-q` 或红点）：列移除，焦点交给右邻
-7. 拖动窗口松手回弹；手动拉宽窗口 → 列宽吸收
-8. 弹出对话框（如保存面板）不被接管
-9. `alt-t` 浮动豁免往返
-10. 改配置保存 → 自动重载（gaps 变化立即可见）；菜单栏暂停/恢复
-11. 最小化 → 列消失；从 Dock 还原 → 回到纸带
-12. 挂起一个 App（`kill -STOP`）：其余窗口操作不被拖死（1s 超时兜底）
+1. On launch, existing windows enter the strip left-to-right and the layout applies immediately
+2. New windows open to the right of the focused column, gain focus, and the viewport scrolls to reveal them
+3. `alt-left/right` (or `alt-h/l`) moves focus along the strip; crossing the viewport boundary triggers minimal scrolling; clicking or Cmd-Tabbing to a docked column scrolls too
+4. `alt-shift-h/l` moves columns, focus follows
+5. `alt-r` cycles widths; `alt-minus/equal` continuously resizes; `alt-f` full-width roundtrip; `alt-c` centers
+6. Closing a window (`alt-q` or the red button): column removed, focus moves to the right neighbor
+7. Dragging snaps back on release; manually widening a window → width absorbed as column width
+8. Popup dialogs (e.g. save panels) are not managed
+9. `alt-t` floating exemption roundtrip
+10. Editing the config → auto-reload (gap changes visible immediately); menu bar pause/resume
+11. Minimize → column disappears; restore from Dock → back on the strip
+12. Suspending an app (`kill -STOP`): other window operations aren't blocked (1s timeout fallback)
 
-## 动画实现说明
+## How the animation works
 
-AX API 没有原生动画能力（真合成器动画需要关 SIP 注入，本项目不做），动画由 60Hz
-缓动插值驱动，几项关键工程手段保证流畅：
+AX APIs have no native animation (true compositor animation would require disabling SIP and injecting; this project doesn't do that), so animation is driven by 60Hz easing interpolation, with a few key engineering choices for smoothness:
 
-- 写操作走 **per-App 并行串行队列**：不同 App 同时动，tick 成本是最慢 App 而非总和
-- 纯平移只发 `setPosition`（1 次 RPC），避免 `setFrame` 的三连调用
-- 尺寸变化动画开始时一次到位，之后只动位置（连续 resize 会让 App 反复重排）
-- 自适应丢帧：慢 App 上一笔未返回就跳过本 tick，自动降帧不拖累他人
-- 最后一帧强制精确落位；批量对账（启动/切 Space）直接瞬时布局
+- Writes go through **per-app parallel serial queues**: apps animate concurrently, so the tick cost is the slowest app, not the sum
+- Pure moves send only `setPosition` (1 RPC), avoiding `setFrame`'s triple calls
+- Size changes snap into place at animation start, then only position is animated (continuous resizing would make apps re-layout repeatedly)
+- Adaptive frame dropping: if a slow app hasn't returned the previous write, this tick is skipped for it — it degrades gracefully without dragging others down
+- The final frame is forced to land exactly; bulk reconciliations (startup / Space switch) apply instantly
 
-个别重排慢的 App（浏览器、Electron）动画帧率天然低于轻量 App，属预期行为；
-不喜欢动画可在配置 `[animation]` 中关闭。
+Apps that are slow to re-layout (browsers, Electron) naturally animate at lower frame rates than lightweight apps — expected behavior; disable animation in config `[animation]` if you don't like it.
 
-### 合成器级动画（可选，需关闭 SIP）
+### Compositor-level animation (optional, requires SIP off)
 
-若追求 niri 那种真正丝滑的动画，可走 SkyLight 合成器方案：部分关闭 SIP，把
-payload 注入 `Dock.app`，用 Dock 的特权连接以单个 `SLSTransaction` 原子批量移动
-窗口——所有窗口同帧一起动，彻底消除 AX 的"逐窗口跳"。
+If you want niri-grade buttery animation, there's the SkyLight compositor path: partially disable SIP, inject a payload into `Dock.app`, and use Dock's privileged connection to move windows atomically in a single `SLSTransaction` — all windows move in the same frame, completely eliminating AX's window-by-window stutter.
 
-代价与前提请务必先读 [docs/COMPOSITOR-SETUP.md](docs/COMPOSITOR-SETUP.md)：
-永久降低系统安全性、每次 macOS 大版本更新后大概率需要重新逆向调试、需要你本人在
-恢复模式关 SIP。相关命令：`scrollwm --check-sa`、`sudo scrollwm --load-sa [--force]`。
-未就绪时自动回退 AX 动画，不影响正常使用。
+Please read [docs/COMPOSITOR-SETUP.md](docs/COMPOSITOR-SETUP.md) for the costs and prerequisites first: permanently reduced system security, likely re-reverse-engineering after every macOS major update, and you must disable SIP in Recovery Mode yourself. Relevant commands: `scrollwm --check-sa`, `sudo scrollwm --load-sa [--force]`. It falls back to AX animation when the payload isn't ready; normal use is unaffected.
 
-## 已知限制
+## Known limitations
 
-- macOS 不允许窗口完全出屏，停靠列会在屏幕边缘露出 `screen_margin` 宽的边（这也是
-  视觉提示，PaperWM 同款行为）
-- 副显示器上的窗口不接管；原生 Spaces 之间的纸带状态不保留顺序
-- 个别自绘窗口 App（部分 Electron/Java）事件延迟较大，偶尔需要 `alt-shift-r` 手动重排
+- macOS doesn't allow windows to go fully off-screen, so docked columns leave a `screen_margin`-wide edge visible (also a visual cue — same behavior as PaperWM)
+- Windows on secondary displays are not managed; strip state doesn't preserve order across native Spaces
+- Some self-drawn-window apps (certain Electron/Java) have slow event handling; occasionally `alt-shift-r` is needed to retile manually
 
-## 架构速览
+## Architecture
 
 ```
-Sources/ScrollCore/        纯布局引擎（无 AppKit 依赖，可单测）
-  Strip.swift              纸带模型：列/焦点/滚动位置 + 全部变换操作
-  LayoutEngine.swift       几何：列宽/滚动钳制/最小露出/边缘停靠
+Sources/ScrollCore/        pure layout engine (no AppKit dependency, unit-testable)
+  Strip.swift              strip model: columns/focus/scroll position + all transforms
+  LayoutEngine.swift       geometry: column widths, scroll clamping, minimal reveal, edge docking
 Sources/scrollwm/
-  AXLayer.swift            AXWindow/AXApplication 封装 + 屏幕坐标转换 + 在屏窗口集
-  WindowManager.swift      编排器:事件回路、全量对账、差异下发、回声抑制、拖拽结算
-  Hotkeys.swift            Carbon 全局热键（不拦截事件流）
-  Config.swift             TOML 解析 + 默认模板 + 文件监听热重载
-  StatusItem.swift         菜单栏逃生门
-  AppDelegate.swift        授权引导与装配
-Tests/ScrollCoreTests/     引擎单元测试（32 个）
+  AXLayer.swift            AXWindow/AXApplication wrappers + screen coordinate conversion + on-screen window set
+  WindowManager.swift      orchestrator: event loop, full reconciliation, diff dispatch, echo suppression, drag settlement
+  Hotkeys.swift            Carbon global hotkeys (doesn't intercept the event stream)
+  Config.swift             TOML parsing + default template + file-watch hot reload
+  StatusItem.swift         menu bar escape hatch
+  AppDelegate.swift        permission guidance and assembly
+Tests/ScrollCoreTests/     engine unit tests (52)
 ```
 
-参考实现：[AeroSpace](https://github.com/nikitabobko/AeroSpace)（AX 架构）、
-[PaperWM.spoon](https://github.com/mogenson/PaperWM.spoon)（卷轴语义与停靠技巧）、
-[niri](https://github.com/YaLTeR/niri)（交互范式）。
+References: [AeroSpace](https://github.com/nikitabobko/AeroSpace) (AX architecture), [PaperWM.spoon](https://github.com/mogenson/PaperWM.spoon) (scroll semantics & docking tricks), [niri](https://github.com/YaLTeR/niri) (interaction paradigm).
 
-## 许可证
+## License
 
-[GPL-3.0](LICENSE)。
+[GPL-3.0](LICENSE).
