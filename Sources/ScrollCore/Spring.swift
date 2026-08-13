@@ -1,6 +1,6 @@
 import Foundation
 
-/// 与 niri/libadwaita 相同的单位质量弹簧参数。
+/// 单位质量弹簧参数。默认值与 niri horizontal-view-movement 一致（临界阻尼、无回弹）。
 public struct SpringParameters: Equatable, Sendable {
     public var dampingRatio: Double
     public var stiffness: Double
@@ -19,7 +19,7 @@ public struct SpringParameters: Equatable, Sendable {
     public var damping: Double { dampingRatio * criticalDamping }
 }
 
-/// 一维解析式弹簧。方程与 niri 的 `src/animation/spring.rs` 一致：
+/// 一维解析式弹簧，解标准阻尼谐振方程（niri/libadwaita 同款，源头不在 niri）：
 /// m*x'' + b*x' + k*x = 0。
 public struct ScalarSpring: Equatable, Sendable {
     public var from: Double
@@ -47,7 +47,7 @@ public struct ScalarSpring: Equatable, Sendable {
         displacementAndVelocity(at: time).velocity
     }
 
-    /// niri 对临界/欠阻尼弹簧使用衰减包络达到 epsilon 的时刻。
+    /// 衰减包络到达 epsilon 的时刻估计（临界/欠阻尼经典做法，niri 同款）。
     /// 默认参数约 326ms；动画结束时由调用方精确落到目标。
     public var settlingDuration: TimeInterval {
         let beta = parameters.damping / (2 * parameters.mass)
@@ -60,7 +60,7 @@ public struct ScalarSpring: Equatable, Sendable {
         let estimate = -log(parameters.epsilon) / beta
         guard estimate.isFinite, estimate >= 0 else { return 3 }
 
-        // 临界与欠阻尼和 niri 一样直接使用包络估计。
+        // 临界与欠阻尼直接用包络估计（niri 同款做法）。
         if abs(beta - omega0) <= Double(Float.ulpOfOne) || beta < omega0 {
             return min(3, estimate)
         }

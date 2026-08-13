@@ -4,7 +4,7 @@ import ScrollCore
 
 /// 帧动画器：以 CADisplayLink 驱动 AX 窗口移动。
 ///
-/// 默认使用与 niri/libadwaita 相同的解析式弹簧。AX 写入是同步 RPC，因此按 App
+/// 默认使用解析式弹簧（标准阻尼谐振方程，与 niri/libadwaita 同款）。AX 写入是同步 RPC，因此按 App
 /// 串行、不同 App 并行；上一笔尚未返回的窗口跳过该显示帧，但物理时钟继续前进。
 final class FrameAnimator {
 
