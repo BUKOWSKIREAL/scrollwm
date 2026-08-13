@@ -4,11 +4,11 @@
 
 A niri-style **scrollable tiling window manager** for macOS (PaperWM paradigm).
 
-Windows are laid out on an infinitely wide horizontal "paper strip", one column per window. New windows open to the right of the focused column; moving focus scrolls the viewport just enough to reveal the focused column; columns that scroll out of view dock at the screen edge, leaving a thin "paper edge" visible. Keyboard-driven, TOML-configured.
+Windows are laid out on an infinitely wide horizontal "paper strip", one column per window. New windows open beside the focused column (right by default, configurable); moving focus scrolls the viewport just enough to reveal the focused column; columns that scroll out of view dock at the screen edge, leaving a thin "paper edge" visible. Keyboard-driven, TOML-configured.
 
 - Pure public Accessibility API (one harmless private function, `_AXUIElementGetWindow`, used to fetch window IDs)
 - **No SIP disabling required** — nothing is injected into other processes
-- Swift: the layout engine is a pure-function library, `ScrollCore` (52 unit tests); the daemon is `scrollwm`
+- Swift: the layout engine is a pure-function library, `ScrollCore` (53 unit tests); the daemon is `scrollwm`
 
 ## MVP scope
 
@@ -77,18 +77,24 @@ Alt (Option) is the default mod key; everything is rebindable in the config:
 - **⌘ + drag a window** (niri's Mod+drag): hold ⌘ and drag a tiled window; on release it reorders to the drop position. Dragging without ⌘ still snaps back to the strip and absorbs width changes
 - `alt-r`: cycle width presets (1/3 → 1/2 → 2/3 → wrap)
 - `alt-minus` / `alt-equal`: continuously narrow / widen (step `resize_step`)
-- `ctrl-minus` / `ctrl-equal`: zoom windows — tiled windows resize their column width; floating windows scale uniformly around their center (≈ ±10% per press)
+- `cmd-minus` / `cmd-equal` (⌘-/⌘+): zoom windows — tiled columns change by `resize_step` of the viewport per press; floating windows scale by about `2 × resize_step` around their center
 - `alt-f`: toggle full-width column (press again to restore)
 - `alt-c`: center the focused column in the viewport
 - `alt-t`: toggle floating exemption (float out of / back into the strip)
 - `alt-q`: close window (same as clicking the red button)
 - `alt-shift-r`: full rescan and retile
 
-The menu bar icon is the escape hatch: pause/resume management, retile now, reload config, quit.
+The menu bar icon is the escape hatch: pause/resume management, the settings window (retile-now and open-config-file live at the bottom of it), and quit. Permission helpers only appear while accessibility permission is missing.
 
 ## Configuration
 
-`~/.config/scrollwm/config.toml`, auto-generated with a default template on first launch, hot-reloaded on save:
+`~/.config/scrollwm/config.toml`, auto-generated with a default template on first launch, hot-reloaded on save.
+
+### Settings window
+
+Menu bar → **Settings…** opens a settings window covering every option: layout gaps/widths, animation, focus ring, compositor, ignored apps, and keybindings (press-to-record). Changes are written back to `config.toml` immediately and hot-reloaded — there is no Save button. Editing the file by hand remains fully supported, and external edits sync back into the open window. One note: saving from the settings window rewrites the file in canonical form; values are preserved, but custom comments may be replaced by the standard annotations.
+
+Manual configuration:
 
 ```toml
 [gaps]
@@ -100,6 +106,7 @@ screen_margin = 6   # docked columns show a thin paper edge, avoiding the look o
 width_presets = [0.33333, 0.5, 0.66667]
 default_width = 0.5
 resize_step = 0.05
+new_window_side = "right"   # "left" to open new windows on the left of the focused column
 
 [animation]
 enabled = true
@@ -133,7 +140,7 @@ ignore = []         # bundle IDs to leave alone, e.g. ["com.apple.systempreferen
 "alt-w" = "cycle-width"      # example: add a custom binding
 "alt-q" = "none"             # example: unbind the default close key
 # Actions: focus-left/right, move-left/right, cycle-width, grow-width,
-# shrink-width, toggle-full-width, center-column, toggle-float,
+# shrink-width, zoom-in/out, toggle-full-width, center-column, toggle-float,
 # close-window, retile, none
 # Key name notes: equal is the plus key (plus is an alias), kpplus/kpminus are the keypad +/- keys
 ```
@@ -143,7 +150,7 @@ ignore = []         # bundle IDs to leave alone, e.g. ["com.apple.systempreferen
 - Only standard windows (`AXStandardWindow`) are managed; dialogs, panels, PiP, and native fullscreen are never touched.
 - Windows that can't be resized are automatically floating-exempt.
 - Dragging a window: on release it snaps back to the strip layout; **manual width changes are absorbed as column width** (niri's interactive-resize semantics).
-- Minimized windows leave the strip; on restore they rejoin to the right of the focused column.
+- Minimized windows leave the strip; on restore they rejoin beside the focused column (same side as new windows).
 - Space switches / app hides trigger a reconciliation (windows outside the current Space are not managed).
 - On quit, windows keep their current positions; no restore.
 
@@ -152,7 +159,7 @@ ignore = []         # bundle IDs to leave alone, e.g. ["com.apple.systempreferen
 After building, walk through this (TextEdit / Terminal / browser with 5+ windows):
 
 1. On launch, existing windows enter the strip left-to-right and the layout applies immediately
-2. New windows open to the right of the focused column, gain focus, and the viewport scrolls to reveal them
+2. New windows open beside the focused column (left or right, in Settings), gain focus, and the viewport scrolls to reveal them
 3. `alt-left/right` (or `alt-h/l`) moves focus along the strip; crossing the viewport boundary triggers minimal scrolling; clicking or Cmd-Tabbing to a docked column scrolls too
 4. `alt-shift-h/l` moves columns, focus follows
 5. `alt-r` cycles widths; `alt-minus/equal` continuously resizes; `alt-f` full-width roundtrip; `alt-c` centers
@@ -198,10 +205,11 @@ Sources/scrollwm/
   AXLayer.swift            AXWindow/AXApplication wrappers + screen coordinate conversion + on-screen window set
   WindowManager.swift      orchestrator: event loop, full reconciliation, diff dispatch, echo suppression, drag settlement
   Hotkeys.swift            Carbon global hotkeys (doesn't intercept the event stream)
-  Config.swift             TOML parsing + default template + file-watch hot reload
+  Config.swift             TOML parsing + write-back serialization + default template + file-watch hot reload
+  SettingsUI.swift         SwiftUI settings window (immediate write-back to config.toml)
   StatusItem.swift         menu bar escape hatch
   AppDelegate.swift        permission guidance and assembly
-Tests/ScrollCoreTests/     engine unit tests (52)
+Tests/ScrollCoreTests/     engine unit tests (53)
 ```
 
 References: [AeroSpace](https://github.com/nikitabobko/AeroSpace) (AX architecture), [PaperWM.spoon](https://github.com/mogenson/PaperWM.spoon) (scroll semantics & docking tricks), [niri](https://github.com/YaLTeR/niri) (interaction paradigm).

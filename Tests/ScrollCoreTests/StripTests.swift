@@ -19,6 +19,13 @@ final class StripTests: XCTestCase {
         XCTAssertEqual(strip.focusedID, 9, "新列应获得焦点")
     }
 
+    func testInsertAdjacentToFocusedOnLeft() {
+        var strip = makeStrip([1, 2, 3], focus: 2)
+        strip.insertAdjacentToFocused(id: 9, fraction: 0.5, side: .left)
+        XCTAssertEqual(strip.windowIDs, [1, 9, 2, 3], "新列应插在焦点列左侧")
+        XCTAssertEqual(strip.focusedID, 9, "新列应获得焦点")
+    }
+
     func testInsertIntoEmptyStrip() {
         var strip = Strip()
         strip.insertAdjacentToFocused(id: 7, fraction: 0.5)
@@ -29,6 +36,30 @@ final class StripTests: XCTestCase {
     func testInsertDuplicateIsNoop() {
         var strip = makeStrip([1, 2], focus: 1)
         strip.insertAdjacentToFocused(id: 2, fraction: 0.5)
+        XCTAssertEqual(strip.windowIDs, [1, 2])
+    }
+
+    func testInsertAtIndexRestoresOrder() {
+        var strip = makeStrip([1, 2, 3], focus: 2)
+        strip.insert(id: 9, at: 1, fraction: 0.4, savedFraction: 0.33)
+        XCTAssertEqual(strip.windowIDs, [1, 9, 2, 3], "应按指定位置插入")
+        XCTAssertEqual(strip.focusedID, 9)
+        let column = strip.columns[1]
+        XCTAssertEqual(column.fraction, 0.4)
+        XCTAssertEqual(column.savedFraction, 0.33)
+    }
+
+    func testInsertAtIndexClamps() {
+        var strip = makeStrip([1, 2])
+        strip.insert(id: 9, at: 99, fraction: 0.5)
+        XCTAssertEqual(strip.windowIDs, [1, 2, 9], "越界下标应钳到末尾")
+        strip.insert(id: 8, at: -5, fraction: 0.5)
+        XCTAssertEqual(strip.windowIDs, [8, 1, 2, 9], "负下标应钳到开头")
+    }
+
+    func testInsertAtIndexDuplicateIsNoop() {
+        var strip = makeStrip([1, 2], focus: 1)
+        strip.insert(id: 2, at: 0, fraction: 0.5)
         XCTAssertEqual(strip.windowIDs, [1, 2])
     }
 

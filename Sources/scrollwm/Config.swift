@@ -7,6 +7,11 @@ enum AnimationMode: String, Equatable {
     case easing
 }
 
+enum NewWindowSide: String, Equatable {
+    case left
+    case right
+}
+
 /// 用户配置。缺省值即为推荐配置，配置文件可只覆盖关心的字段。
 struct Config: Equatable {
     var innerGap: Double = 6
@@ -15,6 +20,7 @@ struct Config: Equatable {
     var widthPresets: [Double] = [1.0 / 3.0, 0.5, 2.0 / 3.0]
     var defaultWidth: Double = 0.5
     var resizeStep: Double = 0.05
+    var newWindowSide: NewWindowSide = .right
     var animationEnabled: Bool = true
     var animationMode: AnimationMode = .spring
     /// easing 兼容模式参数
@@ -27,33 +33,37 @@ struct Config: Equatable {
     var focusRingEnabled: Bool = true
     var focusRingWidth: Double = 3
     var focusRingGlowRadius: Double = 9
+    var focusRingAlwaysOn: Bool = false
     var compositorEnabled: Bool = false
     var ignoreBundleIDs: Set<String> = []
     var bindings: [String: WMAction] = Config.defaultBindings
 
-    static let defaultBindings: [String: WMAction] = [
-        "alt-left": .focusLeft,
-        "alt-right": .focusRight,
+    /// 默认键位的有序形式：序列化按此顺序输出，注释语义与原实现一致
+    static let defaultBindingPairs: [(combo: String, action: WMAction)] = [
+        ("alt-left", .focusLeft),
+        ("alt-right", .focusRight),
         // Vim 风格别名保留兼容；用户可在 [bindings] 中用 "none" 解绑。
-        "alt-h": .focusLeft,
-        "alt-l": .focusRight,
-        "alt-shift-h": .moveLeft,
-        "alt-shift-l": .moveRight,
-        "alt-r": .cycleWidth,
-        "alt-minus": .shrinkWidth,
-        "alt-equal": .growWidth,
-        // Ctrl+加号/减号 窗口放大缩小（加号即 = 键；平铺列调宽，浮动窗等比缩放）
-        "ctrl-equal": .growWidth,
-        "ctrl-shift-equal": .growWidth,
-        "ctrl-kpplus": .growWidth,
-        "ctrl-minus": .shrinkWidth,
-        "ctrl-kpminus": .shrinkWidth,
-        "alt-f": .toggleFullWidth,
-        "alt-c": .centerColumn,
-        "alt-t": .toggleFloat,
-        "alt-q": .closeWindow,
-        "alt-shift-r": .retile,
+        ("alt-h", .focusLeft),
+        ("alt-l", .focusRight),
+        ("alt-shift-h", .moveLeft),
+        ("alt-shift-l", .moveRight),
+        ("alt-r", .cycleWidth),
+        ("alt-minus", .shrinkWidth),
+        ("alt-equal", .growWidth),
+        // ⌘+/- 窗口放大缩小（+ 即 = 键，⌘⇧= 即 ⌘+）
+        ("cmd-equal", .zoomIn),
+        ("cmd-shift-equal", .zoomIn),
+        ("cmd-minus", .zoomOut),
+        ("alt-f", .toggleFullWidth),
+        ("alt-c", .centerColumn),
+        ("alt-t", .toggleFloat),
+        ("alt-q", .closeWindow),
+        ("alt-shift-r", .retile),
     ]
+
+    static let defaultBindings: [String: WMAction] = Dictionary(
+        uniqueKeysWithValues: defaultBindingPairs.map { ($0.combo, $0.action) }
+    )
 
     var layoutSpec: LayoutSpec {
         LayoutSpec(
@@ -123,6 +133,13 @@ struct Config: Equatable {
             if let v = number(layout["resize_step"]), v > 0, v <= 0.5 {
                 config.resizeStep = v
             }
+            if let name = layout["new_window_side"]?.tomlValue.string {
+                if let side = NewWindowSide(rawValue: name) {
+                    config.newWindowSide = side
+                } else {
+                    warnings.append("未知 layout.new_window_side \"\(name)\"，可选：left / right")
+                }
+            }
         }
 
         if let animation = table["animation"]?.tomlValue.table {
@@ -179,6 +196,9 @@ struct Config: Equatable {
             } else if focusRing["glow_radius"] != nil {
                 warnings.append("focus_ring.glow_radius 必须在 0...24 之间")
             }
+            if let v = focusRing["always_on"]?.tomlValue.bool {
+                config.focusRingAlwaysOn = v
+            }
         }
 
         if let compositor = table["compositor"]?.tomlValue.table {
@@ -215,7 +235,115 @@ struct Config: Equatable {
             config.bindings = bindings
         }
 
+        migrateZoomBindings(&config.bindings)
+
         return (config, warnings)
+    }
+
+    /// ⌘+/- 从「加宽/减窄」拆成独立的放大/缩小；旧配置里若仍写成 grow/shrink，迁过来。
+    /// 顺带清掉已废弃的 Ctrl+/- 默认别名，避免设置页叠一堆键帽。
+    private static func migrateZoomBindings(_ bindings: inout [String: WMAction]) {
+        for combo in ["cmd-equal", "cmd-shift-equal", "cmd-plus"] where bindings[combo] == .growWidth {
+            bindings[combo] = .zoomIn
+        }
+        for combo in ["cmd-minus"] where bindings[combo] == .shrinkWidth {
+            bindings[combo] = .zoomOut
+        }
+        let retired: [(combo: String, action: WMAction)] = [
+            ("ctrl-equal", .growWidth),
+            ("ctrl-shift-equal", .growWidth),
+            ("ctrl-kpplus", .growWidth),
+            ("ctrl-minus", .shrinkWidth),
+            ("ctrl-kpminus", .shrinkWidth),
+            ("cmd-kpplus", .growWidth),
+            ("cmd-kpminus", .shrinkWidth),
+            ("cmd-kpplus", .zoomIn),
+            ("cmd-kpminus", .zoomOut),
+        ]
+        for item in retired where bindings[item.combo] == item.action {
+            bindings.removeValue(forKey: item.combo)
+        }
+    }
+
+    // MARK: - 写回（设置窗口保存用）
+
+    /// 序列化为带注释的 TOML 文本。支持的全部键都会完整写出，
+    /// 与 parse 往返一致：解绑的默认键位写 "none"，其余按键位名字典序。
+    func serialize() -> String {
+        var lines: [String] = []
+        lines.append("# scrollwm 配置文件（保存后自动热重载；设置窗口与手改此文件双向同步）")
+        lines.append("")
+        lines.append("[gaps]")
+        lines.append("inner = \(Self.toml(innerGap))           # 列间距（可自由调整）")
+        lines.append("outer = \(Self.toml(outerGap))          # 屏幕外边距")
+        lines.append("screen_margin = \(Self.toml(screenMargin))   # 视口外停靠列露出的细纸边宽度")
+        lines.append("")
+        lines.append("[layout]")
+        lines.append("width_presets = [\(widthPresets.map(Self.toml).joined(separator: ", "))]  # cycle-width 循环的宽度预设")
+        lines.append("default_width = \(Self.toml(defaultWidth))                       # 新窗口默认列宽")
+        lines.append("resize_step = \(Self.toml(resizeStep))                        # grow/shrink-width 步长")
+        lines.append("new_window_side = \"\(newWindowSide.rawValue)\"                  # 新窗口插在焦点列的 left / right")
+        lines.append("")
+        lines.append("[animation]")
+        lines.append("enabled = \(animationEnabled)")
+        lines.append("mode = \"\(animationMode.rawValue)\"")
+        lines.append("damping_ratio = \(Self.toml(springDampingRatio))")
+        lines.append("stiffness = \(Self.toml(springStiffness))")
+        lines.append("epsilon = \(Self.toml(springEpsilon))")
+        lines.append("duration_ms = \(Self.toml(animationDurationMs))   # mode = \"easing\" 时使用")
+        lines.append("curve = \"\(animationCurve.rawValue)\"  # mode = \"easing\" 时使用")
+        lines.append("")
+        lines.append("[focus_ring]")
+        lines.append("enabled = \(focusRingEnabled)")
+        lines.append("width = \(Self.toml(focusRingWidth))")
+        lines.append("glow_radius = \(Self.toml(focusRingGlowRadius))")
+        lines.append("always_on = \(focusRingAlwaysOn)   # 在后台也显示焦点环：切到其他 App 时仍高亮当前纸带焦点列")
+        lines.append("")
+        lines.append("[compositor]")
+        lines.append("enabled = \(compositorEnabled)   # 合成器级动画需关 SIP 并注入 Dock，见 docs/COMPOSITOR-SETUP.md")
+        lines.append("")
+        lines.append("[apps]")
+        let ignored = ignoreBundleIDs.sorted().map { "\"\($0)\"" }.joined(separator: ", ")
+        lines.append("ignore = [\(ignored)]   # 不接管的 App（bundle id）")
+        lines.append("")
+        lines.append("[bindings]")
+        lines.append("# 键位格式：\"修饰键-...-键名\" = \"动作\"；要解绑某项，把值改成 \"none\"")
+        for combo in Config.defaultBindingPairs.map(\.combo) {
+            if let action = bindings[combo] {
+                lines.append("\"\(combo)\" = \"\(action.rawValue)\"")
+            } else {
+                lines.append("\"\(combo)\" = \"none\"")
+            }
+        }
+        for (combo, action) in bindings.sorted(by: { $0.key < $1.key })
+        where Config.defaultBindings[combo] == nil {
+            lines.append("\"\(combo)\" = \"\(action.rawValue)\"")
+        }
+        lines.append("")
+        return lines.joined(separator: "\n")
+    }
+
+    /// 原子写回磁盘。写完由 ConfigWatcher 触发热重载生效。
+    /// 返回是否成功，设置窗口据此提示用户（内存态已生效但没有持久化）。
+    @discardableResult
+    func write(to path: String = Config.configPath) -> Bool {
+        let dir = (path as NSString).deletingLastPathComponent
+        try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        do {
+            try serialize().write(toFile: path, atomically: true, encoding: .utf8)
+            return true
+        } catch {
+            Log.error("配置文件写入失败：\(error.localizedDescription)")
+            return false
+        }
+    }
+
+    /// 整数不带小数点（6 而非 6.0），其余取 Double 的最短十进制表示
+    private static func toml(_ v: Double) -> String {
+        if v == v.rounded(), abs(v) < 1_000_000_000 {
+            return String(Int(v))
+        }
+        return String(v)
     }
 
     // MARK: - 默认模板
@@ -239,6 +367,7 @@ struct Config: Equatable {
     width_presets = [0.33333, 0.5, 0.66667]  # cycle-width 循环的宽度预设
     default_width = 0.5                       # 新窗口默认列宽
     resize_step = 0.05                        # grow/shrink-width 步长
+    new_window_side = "right"                 # 新窗口插在焦点列的 left / right
 
     [animation]
     enabled = true
@@ -255,6 +384,7 @@ struct Config: Equatable {
     enabled = true
     width = 3
     glow_radius = 9
+    always_on = false   # 在后台也显示焦点环：即使焦点在其他 App，当前纸带焦点列仍高亮
 
     [apps]
     # 不接管的 App（bundle id）
@@ -272,7 +402,7 @@ struct Config: Equatable {
     # "alt-shift-h" = "move-left"     "alt-shift-l" = "move-right"
     # "alt-r" = "cycle-width"         "alt-f" = "toggle-full-width"
     # "alt-minus" = "shrink-width"    "alt-equal" = "grow-width"
-    # "ctrl-minus" = "shrink-width"   "ctrl-equal" = "grow-width"   # Ctrl+加号/减号 放大缩小
+    # "cmd-minus" = "zoom-out"        "cmd-equal" = "zoom-in"     # ⌘+/- 放大缩小
     # "alt-c" = "center-column"       "alt-t" = "toggle-float"
     # "alt-q" = "close-window"        "alt-shift-r" = "retile"
     """

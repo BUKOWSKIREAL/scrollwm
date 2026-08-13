@@ -12,9 +12,11 @@ final class FocusRingController {
     private let panel: NSPanel
     private let ringView: FocusRingView
     private var enabled = true
+    private var alwaysOn = false
     private var currentWindowID: CGWindowID?
     private var currentPID: pid_t?
     private var currentAXFrame: CGRect?
+    private var currentCornerRadius: CGFloat = 10
     private var attachedScreenID: CGDirectDisplayID?
     private var foregroundGuard: Timer?
 
@@ -46,20 +48,28 @@ final class FocusRingController {
 
         foregroundGuard = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
             guard let self, self.panel.isVisible else { return }
-            guard let pid = self.currentPID,
-                  NSWorkspace.shared.frontmostApplication?.processIdentifier == pid
-            else {
-                self.hide()
-                return
+            if !self.alwaysOn {
+                guard let pid = self.currentPID,
+                      NSWorkspace.shared.frontmostApplication?.processIdentifier == pid
+                else {
+                    self.hide()
+                    return
+                }
+            }
+            // 点击已聚焦窗口时系统会把它重新抬到普通层最顶、盖住同级边框面板，
+            // 而且这种点击不会产生任何 AX 焦点通知；定时把面板重新排到目标窗口之上。
+            if let id = self.currentWindowID {
+                self.panel.order(.above, relativeTo: Int(id))
             }
         }
     }
 
-    func configure(enabled: Bool, width: CGFloat, glowRadius: CGFloat) {
+    func configure(enabled: Bool, width: CGFloat, glowRadius: CGFloat, alwaysOn: Bool = false) {
         self.enabled = enabled
+        self.alwaysOn = alwaysOn
         ringView.configure(width: width, glowRadius: glowRadius)
         if enabled, let id = currentWindowID, let pid = currentPID, let frame = currentAXFrame {
-            show(windowID: id, pid: pid, axFrame: frame)
+            show(windowID: id, pid: pid, axFrame: frame, cornerRadius: currentCornerRadius)
         } else if !enabled {
             hide()
         }
@@ -67,12 +77,24 @@ final class FocusRingController {
 
     /// `axFrame` 必须是 Accessibility / 布局空间（主屏顶左、点）。
     func show(windowID: CGWindowID, pid: pid_t, axFrame: CGRect, reorder: Bool = false) {
+        let radius = WindowChrome.cornerRadius(for: windowID)
+        show(windowID: windowID, pid: pid, axFrame: axFrame, cornerRadius: radius, reorder: reorder)
+    }
+
+    private func show(
+        windowID: CGWindowID,
+        pid: pid_t,
+        axFrame: CGRect,
+        cornerRadius: CGFloat,
+        reorder: Bool = false
+    ) {
         let targetChanged = currentWindowID != windowID
         currentWindowID = windowID
         currentPID = pid
         currentAXFrame = axFrame
+        currentCornerRadius = cornerRadius
         guard enabled,
-              NSWorkspace.shared.frontmostApplication?.processIdentifier == pid,
+              (alwaysOn || NSWorkspace.shared.frontmostApplication?.processIdentifier == pid),
               axFrame.width > 1, axFrame.height > 1,
               let screen = ScreenGeometry.screen(containingWindowID: windowID)
                 ?? ScreenGeometry.screen(containingAX: axFrame)
@@ -103,23 +125,41 @@ final class FocusRingController {
             panel.setFrame(screenFrame, display: true)
         }
         ringView.syncContentsScale(from: panel)
-        ringView.setWindowRect(local)
+        ringView.setWindowRect(local, cornerRadius: cornerRadius)
         CATransaction.commit()
 
         if !panel.isVisible || targetChanged || reorder || screenChanged {
             panel.alphaValue = 1
-            panel.order(.above, relativeTo: Int(windowID))
-            panel.setFrame(screenFrame, display: true)
-            ringView.setWindowRect(local)
+            if !panel.isVisible || targetChanged || screenChanged {
+                panel.order(.above, relativeTo: Int(windowID))
+                panel.setFrame(screenFrame, display: true)
+                ringView.setWindowRect(local, cornerRadius: cornerRadius)
+            } else {
+                // 内容已是最新，只是层级被点击提窗盖住：仅重排，不重绘，避免连续点击闪烁
+                panel.order(.above, relativeTo: Int(windowID))
+            }
         }
+    }
+
+    /// 面板被目标窗口点击提窗盖住时：仅重排层级，不触碰图层。
+    func reorderAbove(_ windowID: CGWindowID) {
+        guard panel.isVisible, currentWindowID == windowID else { return }
+        panel.order(.above, relativeTo: Int(windowID))
     }
 
     func hide() {
         currentWindowID = nil
         currentPID = nil
         currentAXFrame = nil
+        currentCornerRadius = 10
         attachedScreenID = nil
         hidePanelOnly()
+    }
+
+    /// “跟随前台”的隐藏：常驻开启时不灭，真正要灭的地方请用 hide()
+    func hideIfNotAlwaysOn() {
+        if alwaysOn { return }
+        hide()
     }
 
     func forget(_ windowID: CGWindowID) {
@@ -132,27 +172,27 @@ final class FocusRingController {
 }
 
 private final class FocusRingView: NSView {
-    private let glowLayer = CAShapeLayer()
+    private let glowLayer = CALayer()
     private let gradientLayer = CAGradientLayer()
-    private let gradientMask = CAShapeLayer()
-    private let highlightLayer = CAShapeLayer()
+    private let gradientMask = CALayer()
+    private let highlightLayer = CALayer()
 
     private var ringWidth: CGFloat = 3
     private var glowRadius: CGFloat = 9
     /// 相对本 view（铺满那块屏）的窗口矩形，AppKit 底左。
     private var windowRect: CGRect = .zero
+    private var cornerRadius: CGFloat = 10
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
         layer?.masksToBounds = false
 
-        glowLayer.fillColor = NSColor.clear.cgColor
-        glowLayer.strokeColor = NSColor(calibratedRed: 0.30, green: 0.25, blue: 0.70, alpha: 0.55).cgColor
+        glowLayer.backgroundColor = NSColor.clear.cgColor
+        glowLayer.borderColor = NSColor(calibratedRed: 0.30, green: 0.25, blue: 0.70, alpha: 0.55).cgColor
         glowLayer.shadowColor = NSColor(calibratedRed: 0.24, green: 0.36, blue: 0.72, alpha: 1).cgColor
         glowLayer.shadowOpacity = 0.38
-        glowLayer.lineCap = .round
-        glowLayer.lineJoin = .round
+        glowLayer.masksToBounds = false
         layer?.addSublayer(glowLayer)
 
         gradientLayer.colors = [
@@ -167,10 +207,9 @@ private final class FocusRingView: NSView {
         gradientLayer.mask = gradientMask
         layer?.addSublayer(gradientLayer)
 
-        highlightLayer.fillColor = NSColor.clear.cgColor
-        highlightLayer.strokeColor = NSColor.white.withAlphaComponent(0.12).cgColor
-        highlightLayer.lineCap = .round
-        highlightLayer.lineJoin = .round
+        highlightLayer.backgroundColor = NSColor.clear.cgColor
+        highlightLayer.borderColor = NSColor.white.withAlphaComponent(0.12).cgColor
+        highlightLayer.masksToBounds = false
         layer?.addSublayer(highlightLayer)
     }
 
@@ -204,46 +243,46 @@ private final class FocusRingView: NSView {
         updateLayers()
     }
 
-    func setWindowRect(_ rect: CGRect) {
+    func setWindowRect(_ rect: CGRect, cornerRadius: CGFloat) {
         windowRect = rect
+        self.cornerRadius = cornerRadius
         updateLayers()
     }
 
     private func updateLayers() {
-        let strokeInset = ringWidth / 2 + 0.5
-        let strokeRect = windowRect.insetBy(dx: strokeInset, dy: strokeInset)
-        guard strokeRect.width > 2, strokeRect.height > 2 else { return }
+        guard windowRect.width > 2, windowRect.height > 2 else { return }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
 
-        let cornerRadius = min(16, max(8, strokeRect.width * 0.018))
-        let path = CGPath(
-            roundedRect: strokeRect,
-            cornerWidth: cornerRadius,
-            cornerHeight: cornerRadius,
-            transform: nil
-        )
+        let radius = min(cornerRadius, min(windowRect.width, windowRect.height) / 2)
 
-        glowLayer.frame = bounds
-        glowLayer.path = path
-        glowLayer.lineWidth = ringWidth + 1
-        // 不设置 shadowPath：闭合 shadowPath 会把整个窗口内部当成实心阴影染色。
-        // 让 CA 从透明填充 + stroke 的 alpha 自动推导，只发光描边本身。
-        glowLayer.shadowPath = nil
+        applyRingStyle(glowLayer, frame: windowRect, radius: radius, borderWidth: ringWidth)
         glowLayer.shadowRadius = glowRadius
         glowLayer.shadowOffset = .zero
+        glowLayer.shadowPath = nil
 
         gradientLayer.frame = bounds
-        gradientMask.frame = bounds
-        gradientMask.path = path
-        gradientMask.fillColor = NSColor.clear.cgColor
-        gradientMask.strokeColor = NSColor.white.cgColor
-        gradientMask.lineWidth = ringWidth
+        applyRingStyle(gradientMask, frame: windowRect, radius: radius, borderWidth: ringWidth)
+        gradientMask.borderColor = NSColor.white.cgColor
 
-        highlightLayer.frame = bounds
-        highlightLayer.path = path
-        highlightLayer.lineWidth = max(0.75, ringWidth * 0.28)
+        applyRingStyle(
+            highlightLayer,
+            frame: windowRect,
+            radius: radius,
+            borderWidth: max(0.75, ringWidth * 0.28)
+        )
 
         CATransaction.commit()
+    }
+
+    private func applyRingStyle(_ layer: CALayer, frame: CGRect, radius: CGFloat, borderWidth: CGFloat) {
+        layer.frame = frame
+        layer.backgroundColor = NSColor.clear.cgColor
+        layer.borderWidth = borderWidth
+        layer.cornerRadius = radius
+        // 系统窗口圆角是普通圆弧；.continuous 会更鼓，四角对不齐。
+        layer.cornerCurve = .circular
+        layer.masksToBounds = false
+        layer.allowsEdgeAntialiasing = true
     }
 }

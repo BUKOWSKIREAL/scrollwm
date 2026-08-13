@@ -140,6 +140,38 @@ final class LayoutEngineTests: XCTestCase {
         XCTAssertTrue(LayoutEngine.computeLayout(strip, viewport: viewport, screen: screen, spec: spec).isEmpty)
     }
 
+    func testVisibleColumnsTranslateWithOffset() {
+        var strip = makeStrip([0.4, 0.4], focus: 0)
+        strip.viewportOffset = 0
+        let before = LayoutEngine.computeLayout(strip, viewport: viewport, screen: screen, spec: spec)
+        strip.viewportOffset = 40
+        let after = LayoutEngine.computeLayout(strip, viewport: viewport, screen: screen, spec: spec)
+        XCTAssertEqual(before[0].park, ParkSide.none)
+        XCTAssertEqual(after[0].park, ParkSide.none)
+        XCTAssertEqual(after[0].frame.minX, before[0].frame.minX - 40, accuracy: 0.01)
+        XCTAssertEqual(after[1].frame.minX, before[1].frame.minX - 40, accuracy: 0.01)
+    }
+
+    func testParkClampApproachesMonotonically() {
+        var strip = makeStrip([0.5, 0.5, 0.5], focus: 2)
+        let width = LayoutEngine.columnWidths(strip, viewportWidth: viewport.width)[0]
+        let leftParkX = screen.minX + spec.screenMargin - width
+        let end = LayoutEngine.revealOffset(strip, viewportWidth: viewport.width, spec: spec)
+        var lastX: CGFloat?
+        var offset: CGFloat = 0
+        while offset <= end {
+            strip.viewportOffset = offset
+            let x = LayoutEngine.computeLayout(strip, viewport: viewport, screen: screen, spec: spec)[0].frame.minX
+            XCTAssertGreaterThanOrEqual(x, leftParkX - 0.01)
+            if let lastX {
+                XCTAssertLessThanOrEqual(x, lastX + 0.01, "滚向右侧时左列不应往回跳")
+            }
+            lastX = x
+            offset += 10
+        }
+        XCTAssertEqual(lastX ?? 0, leftParkX, accuracy: 0.5)
+    }
+
     // MARK: - 组合场景：模拟完整交互序列
 
     func testScenarioInsertScrollFocusBack() {

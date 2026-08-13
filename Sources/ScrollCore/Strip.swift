@@ -56,18 +56,29 @@ public struct Strip: Equatable, Sendable {
 
     // MARK: - 增删
 
-    /// 在焦点列右侧插入并聚焦（niri 语义：新窗口开在焦点右边）
+    /// 在焦点列旁插入并聚焦。默认右侧（niri 语义）；`side: .left` 插到焦点左边。
     public mutating func insertAdjacentToFocused(
-        id: WindowID, fraction: Double, savedFraction: Double? = nil
+        id: WindowID, fraction: Double, savedFraction: Double? = nil, side: HDirection = .right
     ) {
         guard !contains(id) else { return }
         var column = Column(id: id, fraction: fraction)
         column.savedFraction = savedFraction
         if let fi = focusedIndex {
-            columns.insert(column, at: fi + 1)
+            columns.insert(column, at: side == .right ? fi + 1 : fi)
         } else {
             columns.append(column)
         }
+        focusedID = id
+    }
+
+    /// 按指定位置插入并聚焦（用于恢复 park 前的列序）。
+    public mutating func insert(
+        id: WindowID, at index: Int, fraction: Double, savedFraction: Double? = nil
+    ) {
+        guard !contains(id) else { return }
+        var column = Column(id: id, fraction: fraction)
+        column.savedFraction = savedFraction
+        columns.insert(column, at: min(max(index, 0), columns.count))
         focusedID = id
     }
 

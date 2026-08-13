@@ -117,6 +117,8 @@ public enum LayoutEngine {
     }
 
     /// 计算所有列的屏幕帧。
+    /// 视口外的列被钳在屏幕纸边（macOS 不能把窗口完全推出去）；钳制是连续的，
+    /// 滚动时窗口滑到纸边就停，不会先消失再弹回来。
     /// - viewport: 平铺区域（screen 内缩 outerGap 及左右各 screenMargin 后）
     /// - screen: 屏幕可用区（visibleFrame 的顶左坐标版本），用于停靠位置
     public static func computeLayout(
@@ -134,27 +136,23 @@ public enum LayoutEngine {
         for (i, column) in strip.columns.enumerated() {
             let w = widths[i]
             let idealX = viewport.minX + (origins[i] - strip.viewportOffset)
-            let ideal = CGRect(x: idealX, y: viewport.minY, width: w, height: viewport.height)
-
-            let placement: WindowPlacement
-            if ideal.maxX <= viewport.minX + 0.5 {
-                // 完全滚出左侧 → 停靠屏幕左缘，露 screenMargin 宽的纸边
-                let frame = CGRect(
-                    x: screen.minX + spec.screenMargin - w,
-                    y: viewport.minY, width: w, height: viewport.height
-                )
-                placement = WindowPlacement(id: column.id, frame: frame, park: .left)
-            } else if ideal.minX >= viewport.maxX - 0.5 {
-                // 完全滚出右侧 → 停靠屏幕右缘
-                let frame = CGRect(
-                    x: screen.maxX - spec.screenMargin,
-                    y: viewport.minY, width: w, height: viewport.height
-                )
-                placement = WindowPlacement(id: column.id, frame: frame, park: .right)
+            // 视口外列钳在纸边，不要等完全出屏再瞬移：否则滚动动画会先滑没、再弹回一条边。
+            let leftParkX = screen.minX + spec.screenMargin - w
+            let rightParkX = screen.maxX - spec.screenMargin
+            let x: CGFloat
+            let park: ParkSide
+            if idealX < leftParkX {
+                x = leftParkX
+                park = .left
+            } else if idealX > rightParkX {
+                x = rightParkX
+                park = .right
             } else {
-                placement = WindowPlacement(id: column.id, frame: ideal, park: .none)
+                x = idealX
+                park = .none
             }
-            placements.append(placement)
+            let frame = CGRect(x: x, y: viewport.minY, width: w, height: viewport.height)
+            placements.append(WindowPlacement(id: column.id, frame: frame, park: park))
         }
         return placements
     }

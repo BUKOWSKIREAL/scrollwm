@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """生成 ScrollWM 应用图标（Support/AppIcon.icns）。
 
-设计：macOS 圆角方块规格（824/1024 网格），深色底 + 三列纸带，
-中间列高亮表示焦点列。依赖 PIL 与系统 iconutil。
+优先使用 Support/icon-source.png（Liquid Glass 渲染）：裁掉黑边，
+按 macOS 824/1024 网格贴到透明画布并做圆角遮罩。
+没有源图时回退到程序绘制的三列纸带。依赖 PIL 与系统 iconutil。
 """
 import os
 import shutil
@@ -10,22 +11,77 @@ import subprocess
 import sys
 import tempfile
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFilter
 
 CANVAS = 1024
-PLATE = 824          # macOS 图标网格：内容占 824/1024
-RADIUS = 186         # 圆角半径（近似系统 squircle）
+PLATE = 824  # macOS 图标网格：内容占 824/1024
+RADIUS = 186  # 圆角半径（近似系统 squircle）
 
 
 def rounded(draw, box, radius, fill):
     draw.rounded_rectangle(box, radius=radius, fill=fill)
 
 
-def build_master() -> Image.Image:
+def plate_mask() -> Image.Image:
+    mask = Image.new("L", (CANVAS, CANVAS), 0)
+    x0 = (CANVAS - PLATE) // 2
+    rounded(
+        ImageDraw.Draw(mask),
+        [x0, x0, x0 + PLATE - 1, x0 + PLATE - 1],
+        RADIUS,
+        255,
+    )
+    return mask
+
+
+def crop_black_frame(im: Image.Image) -> Image.Image:
+    """去掉渲染图四周的实心黑底，保留 squircle 本体。"""
+    rgb = im.convert("RGB")
+    w, h = rgb.size
+    px = rgb.load()
+    minx, miny, maxx, maxy = w, h, 0, 0
+    step = 2
+    for y in range(0, h, step):
+        for x in range(0, w, step):
+            r, g, b = px[x, y]
+            if r + g + b > 18:
+                if x < minx:
+                    minx = x
+                if y < miny:
+                    miny = y
+                if x > maxx:
+                    maxx = x
+                if y > maxy:
+                    maxy = y
+    pad = 4
+    box = (
+        max(0, minx - pad),
+        max(0, miny - pad),
+        min(w, maxx + pad + 1),
+        min(h, maxy + pad + 1),
+    )
+    return im.crop(box)
+
+
+def from_source(path: str) -> Image.Image:
+    src = Image.open(path).convert("RGBA")
+    src = crop_black_frame(src)
+    # 源图圆角处仍是黑像素；先缩放到底板，再用几何遮罩切透明
+    fitted = src.resize((PLATE, PLATE), Image.LANCZOS)
+    img = Image.new("RGBA", (CANVAS, CANVAS), (0, 0, 0, 0))
+    x0 = (CANVAS - PLATE) // 2
+    img.paste(fitted, (x0, x0))
+    mask = plate_mask()
+    # 轻微羽化，避免圆角锯齿
+    mask = mask.filter(ImageFilter.GaussianBlur(radius=0.6))
+    img.putalpha(Image.composite(img.getchannel("A"), Image.new("L", img.size, 0), mask))
+    return img
+
+
+def build_fallback() -> Image.Image:
     img = Image.new("RGBA", (CANVAS, CANVAS), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
 
-    # 底板：深石板色，上浅下深的纵向渐变
     x0 = (CANVAS - PLATE) // 2
     plate = Image.new("RGBA", (PLATE, PLATE), (0, 0, 0, 0))
     pd = ImageDraw.Draw(plate)
@@ -38,7 +94,6 @@ def build_master() -> Image.Image:
     rounded(ImageDraw.Draw(mask), [0, 0, PLATE - 1, PLATE - 1], RADIUS, 255)
     img.paste(plate, (x0, x0), mask)
 
-    # 三列纸带：中间焦点列亮、两侧暗列被"停靠"在边缘
     col_h = 448
     col_y = (CANVAS - col_h) // 2
     col_r = 42
@@ -49,30 +104,29 @@ def build_master() -> Image.Image:
     side_color = (96, 104, 132, 255)
     focus_color = (124, 156, 255, 255)
 
-    # 左右暗列（探出底板边缘一点，暗示纸带向两侧延伸）
     rounded(draw, [mid_x - gap - side_w, col_y, mid_x - gap, col_y + col_h], col_r, side_color)
     rounded(draw, [mid_x + mid_w + gap, col_y, mid_x + mid_w + gap + side_w, col_y + col_h], col_r, side_color)
-    # 焦点列
     rounded(draw, [mid_x, col_y, mid_x + mid_w, col_y + col_h], col_r, focus_color)
-    # 焦点列内的窗口标题条
     rounded(draw, [mid_x + 36, col_y + 40, mid_x + mid_w - 36, col_y + 96], 22, (238, 242, 255, 255))
 
-    # 再次用底板圆角裁掉探出的部分，保持规范外形
-    outer_mask = Image.new("L", (CANVAS, CANVAS), 0)
-    rounded(
-        ImageDraw.Draw(outer_mask),
-        [x0, x0, x0 + PLATE - 1, x0 + PLATE - 1],
-        RADIUS,
-        255,
-    )
+    outer_mask = plate_mask()
     img.putalpha(Image.composite(img.getchannel("A"), Image.new("L", img.size, 0), outer_mask))
     return img
+
+
+def build_master(root: str) -> Image.Image:
+    source = os.path.join(root, "Support", "icon-source.png")
+    if os.path.isfile(source):
+        return from_source(source)
+    return build_fallback()
 
 
 def main() -> int:
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     out_icns = os.path.join(root, "Support", "AppIcon.icns")
-    master = build_master()
+    master = build_master(root)
+    preview = os.path.join(root, "Support", "AppIcon-1024.png")
+    master.save(preview)
 
     with tempfile.TemporaryDirectory() as tmp:
         iconset = os.path.join(tmp, "AppIcon.iconset")

@@ -16,8 +16,8 @@ cp "$BIN" "$APP/Contents/MacOS/scrollwm"
 cp Support/Info.plist "$APP/Contents/Info.plist"
 printf 'APPL????' > "$APP/Contents/PkgInfo"
 
-# 图标缺失时自动生成（需要 python3 + PIL；失败不阻断打包）
-if [ ! -f Support/AppIcon.icns ]; then
+# 有 Liquid Glass 源图或 icns 缺失时生成图标（需要 python3 + PIL；失败不阻断打包）
+if [ -f Support/icon-source.png ] || [ ! -f Support/AppIcon.icns ]; then
   python3 scripts/gen-icon.py || echo "图标生成失败，App 将使用系统默认图标"
 fi
 if [ -f Support/AppIcon.icns ]; then

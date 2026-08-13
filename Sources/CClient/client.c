@@ -52,7 +52,9 @@ static int send_request(const scrollwm_frame_t *frames, uint32_t count, int sett
         req.header.msgh_local_port = reply_port;
         kern_return_t kr = mach_msg(&req.header, options, sizeof(req), sizeof(reply),
                                     reply_port, timeout, MACH_PORT_NULL);
-        mach_port_destroy(mach_task_self(), reply_port);
+        // 只持有 receive right（send-once 已随消息交给对端），精确释放即可；
+        // mach_port_destroy 已废弃且会连带销毁同名的其他权利。
+        mach_port_mod_refs(mach_task_self(), reply_port, MACH_PORT_RIGHT_RECEIVE, -1);
         if (kr != KERN_SUCCESS) return 0;
         return 1;
     } else {

@@ -58,9 +58,14 @@ final class FrameAnimator {
     /// 可选合成器批量通道；为 nil 时走 AX。
     var batchSink: (([(id: CGWindowID, rect: CGRect)], Bool) -> Void)?
 
+    /// 视口动画：每 tick 由布局引擎给出整条纸带的帧，窗口保持相对位置。
+    var onLayoutSample: ((_ elapsed: TimeInterval, _ isFinal: Bool) -> [(window: AXWindow, rect: CGRect)])?
+
     var mode: AnimationMode = .spring
     var curve: Interpolation.Curve = .default
     var springParameters: SpringParameters = .niriDefault
+    private(set) var isLayoutAnimating = false
+    private var layoutDuration: TimeInterval = 0
 
     private var displayLink: CADisplayLink?
     private var linkedDisplayID: CGDirectDisplayID?
@@ -120,7 +125,64 @@ final class FrameAnimator {
         }
     }
 
+    // MARK: - 拖拽热路径
+
+    /// 拖拽期间的坐标写入：走 per-App 串行队列 + 飞行中合并，绝不阻塞主线程。
+    /// App 响应慢时只丢中间帧，松手位置始终是最后一笔。
+    private var dragPending: [CGWindowID: CGPoint] = [:]
+    private var dragInFlight: Set<CGWindowID> = []
+
+    func dragMove(window: AXWindow, to origin: CGPoint) {
+        dragPending[window.windowID] = origin
+        pumpDrag(window: window)
+    }
+
+    /// 拖拽结束：丢弃尚未写出的坐标，避免旧帧在后续重排动画开始后才落地。
+    func cancelDrag(for id: CGWindowID) {
+        dragPending.removeValue(forKey: id)
+    }
+
+    private func pumpDrag(window: AXWindow) {
+        let id = window.windowID
+        guard !dragInFlight.contains(id),
+              let origin = dragPending.removeValue(forKey: id)
+        else { return }
+        dragInFlight.insert(id)
+        queue(for: window.pid).async { [weak self] in
+            window.setPosition(origin)
+            let actual = window.frame()
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.dragInFlight.remove(id)
+                if let actual {
+                    self.lastSent[id] = actual
+                    self.onVisualFrame?(id, actual)
+                }
+                self.pumpDrag(window: window)
+            }
+        }
+    }
+
     // MARK: - 动画
+
+    /// 视口级动画：每帧按插值后的 offset 重新 layout，纸带作为整体滑动。
+    func animateLayout(
+        duration: TimeInterval,
+        targets: [CGWindowID: CGRect],
+        screen: NSScreen? = nil
+    ) {
+        transitions = []
+        isLayoutAnimating = true
+        layoutDuration = max(0, duration)
+        currentTargets = targets
+        startTime = CACurrentMediaTime()
+
+        let displayID = screen.map(ScreenGeometry.displayID)
+        if displayLink == nil || linkedDisplayID != displayID {
+            startDisplayLink(on: screen)
+        }
+        tick(at: startTime)
+    }
 
     /// 启动动画，或在运行中无缝改道。Spring 模式继承当前解析位置和速度，连续按键不会
     /// 重新从静止状态起步，这正是 niri 横向视口移动手感的关键。
@@ -130,6 +192,8 @@ final class FrameAnimator {
         screen: NSScreen? = nil
     ) {
         guard !rawTransitions.isEmpty else { return }
+        isLayoutAnimating = false
+        layoutDuration = 0
 
         let now = CACurrentMediaTime()
         let previousElapsed = max(0, now - startTime)
@@ -223,6 +287,8 @@ final class FrameAnimator {
         stopDisplayLink()
         transitions = []
         currentTargets = [:]
+        isLayoutAnimating = false
+        layoutDuration = 0
     }
 
     /// 停掉单个窗口的动画，其它窗口继续。系统 zoom/fill 时必须立刻放手。
@@ -230,6 +296,10 @@ final class FrameAnimator {
         currentTargets.removeValue(forKey: id)
         inFlight.remove(id)
         transitions.removeAll { $0.window.windowID == id }
+        if isLayoutAnimating {
+            if currentTargets.isEmpty { finish() }
+            return
+        }
         if transitions.isEmpty {
             stopDisplayLink()
         }
@@ -276,6 +346,10 @@ final class FrameAnimator {
     }
 
     private func tick(at now: CFTimeInterval) {
+        if isLayoutAnimating {
+            tickLayout(at: now)
+            return
+        }
         guard !transitions.isEmpty else {
             stopDisplayLink()
             return
@@ -338,10 +412,79 @@ final class FrameAnimator {
         if isFinal { finish() }
     }
 
+    private func tickLayout(at now: CFTimeInterval) {
+        guard let sample = onLayoutSample else {
+            finish()
+            return
+        }
+        let elapsed = max(0, now - startTime)
+        let isFinal = layoutDuration <= 0 || elapsed >= layoutDuration
+        let frames = sample(elapsed, isFinal).filter { currentTargets[$0.window.windowID] != nil }
+
+        if let sink = batchSink {
+            var batch: [(id: CGWindowID, rect: CGRect)] = []
+            batch.reserveCapacity(frames.count)
+            for (window, rect) in frames {
+                let id = window.windowID
+                lastSent[id] = rect
+                presentedSizes[id] = rect.size
+                onWrite?(id, rect)
+                onVisualFrame?(id, visualFrame(rect, for: id))
+                batch.append((id, rect))
+            }
+            if !batch.isEmpty { sink(batch, isFinal) }
+            if isFinal { finish() }
+            return
+        }
+
+        // AX 路径：任一窗口还在飞行则整帧停写，避免纸带被拆开。
+        if !isFinal, frames.contains(where: { inFlight.contains($0.window.windowID) }) {
+            return
+        }
+
+        for (window, rect) in frames {
+            let id = window.windowID
+            if isFinal {
+                lastSent[id] = rect
+                presentedSizes[id] = rect.size
+                onWrite?(id, rect)
+                onVisualFrame?(id, visualFrame(rect, for: id))
+                queue(for: window.pid).async { [weak self] in
+                    window.setFrame(rect)
+                    let actual = window.frame()
+                    DispatchQueue.main.async {
+                        self?.inFlight.remove(id)
+                        if let actual { self?.acceptActualFrame(actual, for: id) }
+                    }
+                }
+                continue
+            }
+
+            let visualRect = visualFrame(rect, for: id)
+            onVisualFrame?(id, visualRect)
+            let axRect = CGRect(origin: visualRect.origin, size: presentedSizes[id] ?? visualRect.size)
+            if let last = lastSent[id], last.origin.approximatelyEqual(to: axRect.origin, tolerance: 0.25) {
+                continue
+            }
+
+            inFlight.insert(id)
+            lastSent[id] = axRect
+            onWrite?(id, axRect)
+            queue(for: window.pid).async { [weak self] in
+                window.setPosition(axRect.origin)
+                DispatchQueue.main.async { self?.inFlight.remove(id) }
+            }
+        }
+
+        if isFinal { finish() }
+    }
+
     private func finish() {
         stopDisplayLink()
         transitions = []
         currentTargets = [:]
+        isLayoutAnimating = false
+        layoutDuration = 0
     }
 
     private func visualFrame(_ requested: CGRect, for id: CGWindowID) -> CGRect {
@@ -350,11 +493,23 @@ final class FrameAnimator {
 
     /// AX 写回后的真实 frame 是焦点边框的最终权威，尤其是有最小尺寸约束的 App。
     private func acceptActualFrame(_ actual: CGRect, for id: CGWindowID) {
-        let requestedSize = currentTargets[id]?.size ?? lastSent[id]?.size
+        let requested = currentTargets[id] ?? lastSent[id]
+        // "弹回默认中央"守卫只适用于非动画路径：动画途中 origin 必然偏离最终目标，
+        // 若据此丢弃反馈，最小宽度 App 的真实尺寸永远吸收不进模型（列会互相覆盖）。
+        if currentTargets[id] == nil, let requested {
+            let originDelta = hypot(actual.minX - requested.minX, actual.minY - requested.minY)
+            if originDelta > 12 {
+                // 客户端把窗口弹回默认中央，不能把我们的目标改成那个尺寸。
+                return
+            }
+        }
+        let requestedSize = requested?.size
         presentedSizes[id] = actual.size
         if let requestedSize,
            abs(requestedSize.width - actual.width) > 2 || abs(requestedSize.height - actual.height) > 2 {
-            onConstrainedFrame?(id, actual)
+            if currentTargets[id] == nil {
+                onConstrainedFrame?(id, actual)
+            }
         }
         if var cached = lastSent[id] {
             cached.size = actual.size
@@ -378,6 +533,7 @@ final class FrameAnimator {
         presentedSizes.removeAll()
         // currentTargets / transitions 已由 cancel() 清理，这里兜底再清一次 inFlight 避免残留跳帧
         inFlight.removeAll()
+        dragPending.removeAll()
     }
 
     func forget(_ id: CGWindowID) {
@@ -385,6 +541,7 @@ final class FrameAnimator {
         currentTargets.removeValue(forKey: id)
         inFlight.remove(id)
         presentedSizes.removeValue(forKey: id)
+        dragPending.removeValue(forKey: id)
         transitions.removeAll { $0.window.windowID == id }
     }
 }

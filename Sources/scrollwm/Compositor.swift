@@ -21,7 +21,7 @@ final class CompositorMover {
     /// 发送批量帧。frames: (窗口, 目标矩形, alpha)
     func apply(_ frames: [(id: WindowID, rect: CGRect, alpha: Float)], settle: Bool) {
         guard isAvailable, !frames.isEmpty else { return }
-        var cframes = frames.prefix(64).map { f in
+        let cframes = frames.prefix(64).map { f in
             scrollwm_frame_t(
                 window_id: f.id,
                 x: Float(f.rect.origin.x), y: Float(f.rect.origin.y),
