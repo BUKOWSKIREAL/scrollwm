@@ -77,6 +77,7 @@ Alt(Option) 为默认 Mod 键，全部可在配置中改：
 - `alt-left` / `alt-right`：焦点移到左列 / 右列（自动滚动露出）
 - `alt-h` / `alt-l`：同上，Vim 风格别名；可在配置中解绑
 - `alt-shift-h` / `alt-shift-l`：焦点列向左 / 右挪位
+- **Command + 拖动窗口**（niri Super+拖动）：按住 ⌘ 拖动平铺窗口，松手后按落点重排列序；不按 ⌘ 的拖动仍会回弹到纸带并吸收宽度
 - `alt-r`：循环宽度预设（1/3 → 1/2 → 2/3 → 回绕）
 - `alt-minus` / `alt-equal`：连续缩窄 / 加宽（步长 `resize_step`）
 - `ctrl-minus` / `ctrl-equal`（Ctrl+减号/加号）：窗口放大缩小——
@@ -218,3 +219,7 @@ Tests/ScrollCoreTests/     引擎单元测试（32 个）
 参考实现：[AeroSpace](https://github.com/nikitabobko/AeroSpace)（AX 架构）、
 [PaperWM.spoon](https://github.com/mogenson/PaperWM.spoon)（卷轴语义与停靠技巧）、
 [niri](https://github.com/YaLTeR/niri)（交互范式）。
+
+## 许可证
+
+[GPL-3.0](LICENSE)。

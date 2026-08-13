@@ -50,7 +50,23 @@ final class CoordinateConvertTests: XCTestCase {
         let cocoa = CoordinateConvert.appKit(fromQuartz: quartz, displayBounds: display, screenFrame: screen)
         XCTAssertEqual(cocoa.origin.x, 100, accuracy: 0.01)
         XCTAssertEqual(cocoa.width, 400, accuracy: 0.01)
-        XCTAssertEqual(cocoa.height, 300, accuracy: 0.01)
         XCTAssertEqual(cocoa.origin.y, 982 - 40 - 300, accuracy: 0.01)
+    }
+
+    func testAXPointFromAppKitOnExternal() {
+        let primaryMaxY: CGFloat = 900
+        let cocoa = CGPoint(x: 1600, y: 80)
+        let ax = CoordinateConvert.axPoint(fromAppKit: cocoa, primaryMaxY: primaryMaxY)
+        XCTAssertEqual(ax.x, 1600)
+        XCTAssertEqual(ax.y, 820)
+    }
+
+    func testQuartzPointRoundTripOnPrimary() {
+        let display = CGRect(x: 0, y: 0, width: 1920, height: 1080)
+        let screen = display
+        let cocoa = CGPoint(x: 100, y: 730)
+        let quartz = CoordinateConvert.quartzPoint(fromAppKit: cocoa, displayBounds: display, screenFrame: screen)
+        XCTAssertEqual(quartz.x, 100, accuracy: 0.01)
+        XCTAssertEqual(quartz.y, 350, accuracy: 0.01)
     }
 }

@@ -112,6 +112,17 @@ final class StripTests: XCTestCase {
         XCTAssertEqual(strip.windowIDs, [1, 2, 3])
     }
 
+    func testMoveToIndex() {
+        var strip = makeStrip([1, 2, 3, 4], focus: 3)
+        XCTAssertTrue(strip.move(id: 3, toIndex: 0))
+        XCTAssertEqual(strip.windowIDs, [3, 1, 2, 4])
+        XCTAssertEqual(strip.focusedID, 3)
+        XCTAssertTrue(strip.move(id: 3, toIndex: 3))
+        XCTAssertEqual(strip.windowIDs, [1, 2, 4, 3])
+        XCTAssertFalse(strip.move(id: 3, toIndex: 3), "已在目标下标则不动")
+        XCTAssertFalse(strip.move(id: 99, toIndex: 0))
+    }
+
     // MARK: - 宽度
 
     func testCycleWidthAdvancesToNextPreset() {

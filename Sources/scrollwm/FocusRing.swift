@@ -3,6 +3,11 @@ import QuartzCore
 
 /// 覆盖在焦点窗口上的蓝紫渐变亮边。
 /// 使用独立、鼠标穿透的 NSPanel，因为 AX 没有修改其他 App 窗口装饰的 API。
+///
+/// Overlay 铺满窗口所在屏的 `NSScreen.frame`，亮边在屏内本地坐标绘制。
+/// 这样 `setFrame` 不会落到错误的屏上，backing scale 也跟那块屏一致。
+/// 窗口矩形走 AX / 布局的点坐标（`primaryMaxY`），不要用 `CGDisplayBounds`
+/// 再缩一次：那会把点坐标当成像素，外接屏上整框错位。
 final class FocusRingController {
     private let panel: NSPanel
     private let ringView: FocusRingView
@@ -10,6 +15,7 @@ final class FocusRingController {
     private var currentWindowID: CGWindowID?
     private var currentPID: pid_t?
     private var currentAXFrame: CGRect?
+    private var attachedScreenID: CGDirectDisplayID?
     private var foregroundGuard: Timer?
 
     init() {
@@ -59,7 +65,7 @@ final class FocusRingController {
         }
     }
 
-    /// AX 使用全局顶左原点；NSWindow 使用全局底左原点。
+    /// `axFrame` 必须是 Accessibility / 布局空间（主屏顶左、点）。
     func show(windowID: CGWindowID, pid: pid_t, axFrame: CGRect, reorder: Bool = false) {
         let targetChanged = currentWindowID != windowID
         currentWindowID = windowID
@@ -69,30 +75,42 @@ final class FocusRingController {
               NSWorkspace.shared.frontmostApplication?.processIdentifier == pid,
               axFrame.width > 1, axFrame.height > 1,
               let screen = ScreenGeometry.screen(containingWindowID: windowID)
-                ?? ScreenGeometry.screen(containingQuartz: axFrame),
-              let appKitFrame = Optional(ScreenGeometry.appKitRect(fromQuartz: axFrame, on: screen)),
-              appKitFrame.width > 1, appKitFrame.height > 1
+                ?? ScreenGeometry.screen(containingAX: axFrame)
         else {
             hidePanelOnly()
             return
         }
 
-        let padding = ringView.panelPadding
-        let contentRect = appKitFrame.insetBy(dx: -padding, dy: -padding)
-        let panelFrame = panel.frameRect(forContentRect: contentRect)
+        let cocoa = ScreenGeometry.appKitRect(fromAX: axFrame)
+        let screenFrame = screen.frame
+        let local = cocoa.offsetBy(dx: -screenFrame.minX, dy: -screenFrame.minY)
+        guard local.width > 1, local.height > 1 else {
+            hidePanelOnly()
+            return
+        }
+
+        let displayID = ScreenGeometry.displayID(of: screen)
+        let screenChanged = attachedScreenID != displayID
+        attachedScreenID = displayID
 
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        panel.setFrame(panelFrame, display: true)
+        if screenChanged || abs(panel.frame.minX - screenFrame.minX) > 0.5
+            || abs(panel.frame.minY - screenFrame.minY) > 0.5
+            || abs(panel.frame.width - screenFrame.width) > 0.5
+            || abs(panel.frame.height - screenFrame.height) > 0.5
+        {
+            panel.setFrame(screenFrame, display: true)
+        }
         ringView.syncContentsScale(from: panel)
-        ringView.layoutRing(padding: padding)
+        ringView.setWindowRect(local)
         CATransaction.commit()
 
-        if !panel.isVisible || targetChanged || reorder {
+        if !panel.isVisible || targetChanged || reorder || screenChanged {
             panel.alphaValue = 1
             panel.order(.above, relativeTo: Int(windowID))
-            panel.setFrame(panelFrame, display: true)
-            ringView.layoutRing(padding: padding)
+            panel.setFrame(screenFrame, display: true)
+            ringView.setWindowRect(local)
         }
     }
 
@@ -100,6 +118,7 @@ final class FocusRingController {
         currentWindowID = nil
         currentPID = nil
         currentAXFrame = nil
+        attachedScreenID = nil
         hidePanelOnly()
     }
 
@@ -120,9 +139,8 @@ private final class FocusRingView: NSView {
 
     private var ringWidth: CGFloat = 3
     private var glowRadius: CGFloat = 9
-    private var edgePadding: CGFloat = 12
-
-    var panelPadding: CGFloat { max(8, glowRadius + ringWidth) }
+    /// 相对本 view（铺满那块屏）的窗口矩形，AppKit 底左。
+    private var windowRect: CGRect = .zero
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -186,15 +204,14 @@ private final class FocusRingView: NSView {
         updateLayers()
     }
 
-    func layoutRing(padding: CGFloat) {
-        edgePadding = padding
-        layoutSubtreeIfNeeded()
+    func setWindowRect(_ rect: CGRect) {
+        windowRect = rect
         updateLayers()
     }
 
     private func updateLayers() {
-        let strokeInset = edgePadding + ringWidth / 2 + 0.5
-        let strokeRect = bounds.insetBy(dx: strokeInset, dy: strokeInset)
+        let strokeInset = ringWidth / 2 + 0.5
+        let strokeRect = windowRect.insetBy(dx: strokeInset, dy: strokeInset)
         guard strokeRect.width > 2, strokeRect.height > 2 else { return }
         CATransaction.begin()
         CATransaction.setDisableActions(true)

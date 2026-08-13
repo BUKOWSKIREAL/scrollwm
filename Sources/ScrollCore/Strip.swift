@@ -57,9 +57,12 @@ public struct Strip: Equatable, Sendable {
     // MARK: - 增删
 
     /// 在焦点列右侧插入并聚焦（niri 语义：新窗口开在焦点右边）
-    public mutating func insertAdjacentToFocused(id: WindowID, fraction: Double) {
+    public mutating func insertAdjacentToFocused(
+        id: WindowID, fraction: Double, savedFraction: Double? = nil
+    ) {
         guard !contains(id) else { return }
-        let column = Column(id: id, fraction: fraction)
+        var column = Column(id: id, fraction: fraction)
+        column.savedFraction = savedFraction
         if let fi = focusedIndex {
             columns.insert(column, at: fi + 1)
         } else {
@@ -69,9 +72,11 @@ public struct Strip: Equatable, Sendable {
     }
 
     /// 批量收编时追加到尾部，不改变焦点
-    public mutating func append(id: WindowID, fraction: Double) {
+    public mutating func append(id: WindowID, fraction: Double, savedFraction: Double? = nil) {
         guard !contains(id) else { return }
-        columns.append(Column(id: id, fraction: fraction))
+        var column = Column(id: id, fraction: fraction)
+        column.savedFraction = savedFraction
+        columns.append(column)
         if focusedID == nil { focusedID = id }
     }
 
@@ -122,6 +127,18 @@ public struct Strip: Equatable, Sendable {
         let target = dir == .left ? fi - 1 : fi + 1
         guard columns.indices.contains(target) else { return false }
         columns.swapAt(fi, target)
+        return true
+    }
+
+    /// 把一列挪到目标下标（niri Mod+拖动落点）。`toIndex` 是挪完后的最终位置。
+    @discardableResult
+    public mutating func move(id: WindowID, toIndex: Int) -> Bool {
+        guard let from = index(of: id), !columns.isEmpty else { return false }
+        let dest = min(max(toIndex, 0), columns.count - 1)
+        guard dest != from else { return false }
+        let column = columns.remove(at: from)
+        columns.insert(column, at: min(dest, columns.count))
+        focusedID = id
         return true
     }
 

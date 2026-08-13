@@ -15,9 +15,13 @@ public enum CoordinateConvert {
         appKit(fromAX: rect, primaryMaxY: primaryMaxY)
     }
 
-    /// 把 Quartz 全局矩形（与 `CGDisplayBounds` / `kCGWindowBounds` 同一空间）
-    /// 映射到某块屏的 AppKit 全局坐标。用该屏 `frame` 与 `CGDisplayBounds` 的比例
-    /// 吸收 points vs pixels，避免外接屏上 overlay 缩成一小块。
+    public static func axPoint(fromAppKit point: CGPoint, primaryMaxY: CGFloat) -> CGPoint {
+        CGPoint(x: point.x, y: primaryMaxY - point.y)
+    }
+
+    /// 把与 `CGDisplayBounds` / `kCGWindowBounds` 同一空间的矩形映射到某块屏的 AppKit 坐标。
+    /// 不要拿 Accessibility / 布局点坐标走这条路径：Retina 上 `CGDisplayBounds` 可能是像素，
+    /// 再乘一次缩放会让 overlay 错位。AX 矩形用 `appKit(fromAX:primaryMaxY:)`。
     public static func appKit(
         fromQuartz rect: CGRect,
         displayBounds: CGRect,
@@ -35,6 +39,21 @@ public enum CoordinateConvert {
             y: screenFrame.minY + localY,
             width: width,
             height: height
+        )
+    }
+
+    public static func quartzPoint(
+        fromAppKit point: CGPoint,
+        displayBounds: CGRect,
+        screenFrame: CGRect
+    ) -> CGPoint {
+        let sx = screenFrame.width == 0 ? 1 : displayBounds.width / screenFrame.width
+        let sy = screenFrame.height == 0 ? 1 : displayBounds.height / screenFrame.height
+        let localX = (point.x - screenFrame.minX) * sx
+        let localYFromBottom = (point.y - screenFrame.minY) * sy
+        return CGPoint(
+            x: displayBounds.minX + localX,
+            y: displayBounds.minY + displayBounds.height - localYFromBottom
         )
     }
 }

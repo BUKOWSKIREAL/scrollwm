@@ -235,6 +235,10 @@ enum ScreenGeometry {
         CoordinateConvert.appKit(fromAX: rect, primaryMaxY: primaryMaxY)
     }
 
+    static func axPoint(fromAppKit point: CGPoint) -> CGPoint {
+        CoordinateConvert.axPoint(fromAppKit: point, primaryMaxY: primaryMaxY)
+    }
+
     static func axVisible(of screen: NSScreen) -> CGRect {
         axRect(fromAppKit: screen.visibleFrame)
     }
@@ -249,7 +253,23 @@ enum ScreenGeometry {
     }
 
     static func screen(containingAX rect: CGRect) -> NSScreen? {
-        screen(containingQuartz: rect)
+        let cocoa = appKitRect(fromAX: rect)
+        let center = CGPoint(x: cocoa.midX, y: cocoa.midY)
+        if let exact = NSScreen.screens.first(where: { $0.frame.contains(center) }) {
+            return exact
+        }
+        var best: NSScreen?
+        var bestArea: CGFloat = 0
+        for screen in NSScreen.screens {
+            let inter = screen.frame.intersection(cocoa)
+            guard !inter.isNull else { continue }
+            let area = inter.width * inter.height
+            if area > bestArea {
+                bestArea = area
+                best = screen
+            }
+        }
+        return bestArea >= 1 ? best : nil
     }
 
     /// Quartz 矩形落在哪块屏上：直接比 `CGDisplayBounds`，不经过 AppKit 转换。
@@ -284,9 +304,21 @@ enum ScreenGeometry {
         )
     }
 
+    static func quartzPoint(fromAppKit point: CGPoint) -> CGPoint {
+        let screen = NSScreen.screens.first { $0.frame.insetBy(dx: -8, dy: -8).contains(point) }
+            ?? NSScreen.main
+            ?? NSScreen.screens.first
+        guard let screen else { return point }
+        return CoordinateConvert.quartzPoint(
+            fromAppKit: point,
+            displayBounds: CGDisplayBounds(displayID(of: screen)),
+            screenFrame: screen.frame
+        )
+    }
+
     /// 焦点窗所在屏 → 键盘焦点屏 → 主屏。外接显示器工作时必须跟窗口走，不能写死 screens[0]。
     static func activeScreen(preferredAXFrame: CGRect?) -> NSScreen? {
-        if let preferredAXFrame, let screen = screen(containingQuartz: preferredAXFrame) {
+        if let preferredAXFrame, let screen = screen(containingAX: preferredAXFrame) {
             return screen
         }
         return NSScreen.main ?? NSScreen.screens.first
@@ -327,5 +359,24 @@ enum OnScreenWindows {
               let rect = CGRect(dictionaryRepresentation: dict)
         else { return nil }
         return rect
+    }
+
+    /// 最前的普通窗口（跳过本进程的焦点框 overlay）。坐标为 Quartz 顶左。
+    static func id(atQuartz point: CGPoint) -> CGWindowID? {
+        guard let info = CGWindowListCopyWindowInfo(
+            [.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID
+        ) as? [[String: Any]] else { return nil }
+        let selfPID = ProcessInfo.processInfo.processIdentifier
+        for entry in info {
+            if let pid = entry[kCGWindowOwnerPID as String] as? pid_t, pid == selfPID { continue }
+            guard let layer = entry[kCGWindowLayer as String] as? Int, layer == 0,
+                  let number = entry[kCGWindowNumber as String] as? UInt32,
+                  let dict = entry[kCGWindowBounds as String] as? NSDictionary,
+                  let bounds = CGRect(dictionaryRepresentation: dict),
+                  bounds.contains(point)
+            else { continue }
+            return number
+        }
+        return nil
     }
 }
