@@ -1,0 +1,393 @@
+import AppKit
+import QuartzCore
+import ScrollCore
+
+/// 帧动画器：以 CADisplayLink 驱动 AX 窗口移动。
+///
+/// 默认使用与 niri/libadwaita 相同的解析式弹簧。AX 写入是同步 RPC，因此按 App
+/// 串行、不同 App 并行；上一笔尚未返回的窗口跳过该显示帧，但物理时钟继续前进。
+final class FrameAnimator {
+
+    struct Transition {
+        let window: AXWindow
+        let from: CGRect
+        let to: CGRect
+    }
+
+    private struct ActiveTransition {
+        let window: AXWindow
+        let from: CGRect
+        let to: CGRect
+        let springX: ScalarSpring?
+        let springY: ScalarSpring?
+        let duration: TimeInterval
+
+        /// 窗口尺寸通过 AX 一次性落到目标，因此视觉边框尺寸也必须立即一致；
+        /// 只有位置沿 Spring 运动，避免边框右缘短暂画在窗口内部。
+        func frame(at elapsed: TimeInterval, curve: Interpolation.Curve) -> CGRect {
+            if let springX, let springY {
+                return CGRect(
+                    x: springX.value(at: elapsed),
+                    y: springY.value(at: elapsed),
+                    width: to.width,
+                    height: to.height
+                )
+            }
+            let progress = duration > 0 ? min(1, elapsed / duration) : 1
+            let origin = Interpolation.lerp(from.origin, to.origin, curve.value(progress))
+            return CGRect(origin: origin, size: to.size)
+        }
+
+        func velocity(at elapsed: TimeInterval) -> CGPoint {
+            CGPoint(
+                x: springX?.velocity(at: elapsed) ?? 0,
+                y: springY?.velocity(at: elapsed) ?? 0
+            )
+        }
+    }
+
+    /// 每次 AX 下发前回调，供 WindowManager 记录回声抑制帧。
+    var onWrite: ((CGWindowID, CGRect) -> Void)?
+
+    /// 每个 DisplayLink tick 的完整视觉帧；不受 AX inFlight 丢帧影响。
+    var onVisualFrame: ((CGWindowID, CGRect) -> Void)?
+
+    /// AX 实际接受的 frame 与请求不一致（通常是 App 最小宽度钳制）时回调布局层。
+    var onConstrainedFrame: ((CGWindowID, CGRect) -> Void)?
+
+    /// 可选合成器批量通道；为 nil 时走 AX。
+    var batchSink: (([(id: CGWindowID, rect: CGRect)], Bool) -> Void)?
+
+    var mode: AnimationMode = .spring
+    var curve: Interpolation.Curve = .default
+    var springParameters: SpringParameters = .niriDefault
+
+    private var displayLink: CADisplayLink?
+    private var linkedDisplayID: CGDirectDisplayID?
+    private let linkTarget = DisplayLinkProxy()
+    private var startTime: CFTimeInterval = 0
+    private var transitions: [ActiveTransition] = []
+    private var appQueues: [pid_t: DispatchQueue] = [:]
+    private var inFlight: Set<CGWindowID> = []
+    /// AX 实际接受的窗口尺寸。部分 App 会按最小尺寸钳制 setSize，不能假设请求值即实际值。
+    private var presentedSizes: [CGWindowID: CGSize] = [:]
+
+    /// 最后一次计划下发的帧，避免动画热路径读取 AX。
+    private(set) var lastSent: [CGWindowID: CGRect] = [:]
+    private(set) var currentTargets: [CGWindowID: CGRect] = [:]
+
+    var isRunning: Bool { displayLink != nil }
+
+    init() {
+        linkTarget.owner = self
+    }
+
+    func hasTarget(for id: CGWindowID) -> Bool {
+        currentTargets[id] != nil
+    }
+
+    func isAnimating(toward targets: [CGWindowID: CGRect]) -> Bool {
+        guard isRunning, targets.count == currentTargets.count else { return false }
+        for (id, rect) in targets {
+            guard let existing = currentTargets[id],
+                  existing.approximatelyEqual(to: rect, tolerance: 1.5)
+            else { return false }
+        }
+        return true
+    }
+
+    private func queue(for pid: pid_t) -> DispatchQueue {
+        if let queue = appQueues[pid] { return queue }
+        let queue = DispatchQueue(label: "scrollwm.ax.\(pid)", qos: .userInteractive)
+        appQueues[pid] = queue
+        return queue
+    }
+
+    // MARK: - 立即应用
+
+    func applyInstantly(window: AXWindow, rect: CGRect) {
+        let id = window.windowID
+        lastSent[id] = rect
+        presentedSizes[id] = rect.size
+        onWrite?(id, rect)
+        onVisualFrame?(id, rect)
+        queue(for: window.pid).async { [weak self] in
+            window.setFrame(rect)
+            guard let actual = window.frame() else { return }
+            DispatchQueue.main.async {
+                self?.acceptActualFrame(actual, for: id)
+            }
+        }
+    }
+
+    // MARK: - 动画
+
+    /// 启动动画，或在运行中无缝改道。Spring 模式继承当前解析位置和速度，连续按键不会
+    /// 重新从静止状态起步，这正是 niri 横向视口移动手感的关键。
+    func animate(
+        transitions rawTransitions: [Transition],
+        duration requestedDuration: TimeInterval,
+        screen: NSScreen? = nil
+    ) {
+        guard !rawTransitions.isEmpty else { return }
+
+        let now = CACurrentMediaTime()
+        let previousElapsed = max(0, now - startTime)
+        let previousByID = Dictionary(uniqueKeysWithValues: transitions.map { ($0.window.windowID, $0) })
+
+        var prepared: [ActiveTransition] = []
+        var newTargets: [CGWindowID: CGRect] = [:]
+        prepared.reserveCapacity(rawTransitions.count)
+
+        for transition in rawTransitions {
+            let id = transition.window.windowID
+            let previous = previousByID[id]
+            let liveFrom = previous?.frame(at: previousElapsed, curve: curve)
+                ?? lastSent[id]
+                ?? transition.from
+            let inheritedVelocity = previous?.velocity(at: previousElapsed) ?? .zero
+
+            let sizeChanged = abs(liveFrom.width - transition.to.width) > 1
+                || abs(liveFrom.height - transition.to.height) > 1
+            presentedSizes[id] = transition.to.size
+            if sizeChanged {
+                // AX 连续 resize 会让客户端重排并闪烁；尺寸先到位，弹簧只负责位置。
+                // 亮边必须立刻用目标尺寸，否则 Ctrl+加号时框会缩在窗口里面。
+                queue(for: transition.window.pid).async { [weak self, window = transition.window] in
+                    window.setSize(transition.to.size)
+                    guard let actual = window.frame() else { return }
+                    DispatchQueue.main.async {
+                        self?.acceptActualFrame(actual, for: id)
+                    }
+                }
+            }
+
+            // 位置动画仍以目标几何为准；视觉尺寸由 presentedSizes 使用 AX 实际值覆盖。
+            let from = CGRect(origin: liveFrom.origin, size: transition.to.size)
+            let active: ActiveTransition
+            switch mode {
+            case .spring:
+                let springX = ScalarSpring(
+                    from: from.minX,
+                    to: transition.to.minX,
+                    initialVelocity: inheritedVelocity.x,
+                    parameters: springParameters
+                )
+                let springY = ScalarSpring(
+                    from: from.minY,
+                    to: transition.to.minY,
+                    initialVelocity: inheritedVelocity.y,
+                    parameters: springParameters
+                )
+                active = ActiveTransition(
+                    window: transition.window,
+                    from: from,
+                    to: transition.to,
+                    springX: springX,
+                    springY: springY,
+                    duration: max(springX.settlingDuration, springY.settlingDuration)
+                )
+            case .easing:
+                let maxTravel = hypot(transition.to.minX - from.minX, transition.to.minY - from.minY)
+                let distanceScale = min(1, Double(maxTravel) / 900)
+                let base = max(0.05, requestedDuration)
+                let adapted = base * (0.55 + 0.45 * max(0.25, distanceScale))
+                active = ActiveTransition(
+                    window: transition.window,
+                    from: from,
+                    to: transition.to,
+                    springX: nil,
+                    springY: nil,
+                    duration: adapted
+                )
+            }
+
+            prepared.append(active)
+            newTargets[id] = transition.to
+            // AX 语义下尺寸已经计划一次性到目标；缓存反映实际窗口而不是视觉亮边。
+            lastSent[id] = CGRect(origin: from.origin, size: transition.to.size)
+        }
+
+        transitions = prepared
+        currentTargets = newTargets
+        startTime = now
+
+        let displayID = screen.map(ScreenGeometry.displayID)
+        if displayLink == nil || linkedDisplayID != displayID {
+            startDisplayLink(on: screen)
+        }
+        tick(at: now)
+    }
+
+    func cancel() {
+        stopDisplayLink()
+        transitions = []
+        currentTargets = [:]
+    }
+
+    // MARK: - DisplayLink
+
+    private func startDisplayLink(on screen: NSScreen?) {
+        stopDisplayLink()
+        // 必须绑到窗口所在屏。默认 CADisplayLink 跟主屏/内建屏 vsync；
+        // 外接屏 60Hz、内建屏 ProMotion 省电降到 1Hz 时，动画会直接停住。
+        let link: CADisplayLink
+        if let screen {
+            link = screen.displayLink(target: linkTarget, selector: #selector(DisplayLinkProxy.tick(_:)))
+            linkedDisplayID = ScreenGeometry.displayID(of: screen)
+        } else {
+            link = CADisplayLink(target: linkTarget, selector: #selector(DisplayLinkProxy.tick(_:)))
+            linkedDisplayID = nil
+        }
+        let fps = max(30, screen?.maximumFramesPerSecond ?? 60)
+        link.preferredFrameRateRange = CAFrameRateRange(
+            minimum: 30,
+            maximum: Float(fps),
+            preferred: Float(fps)
+        )
+        link.add(to: .main, forMode: .common)
+        displayLink = link
+    }
+
+    private func stopDisplayLink() {
+        displayLink?.invalidate()
+        displayLink = nil
+        linkedDisplayID = nil
+    }
+
+    fileprivate func handleDisplayLink(_ link: CADisplayLink) {
+        let now: CFTimeInterval
+        if #available(macOS 14.0, *) {
+            now = link.targetTimestamp
+        } else {
+            now = CACurrentMediaTime()
+        }
+        tick(at: now)
+    }
+
+    private func tick(at now: CFTimeInterval) {
+        guard !transitions.isEmpty else {
+            stopDisplayLink()
+            return
+        }
+
+        let elapsed = max(0, now - startTime)
+        let isFinal = transitions.allSatisfy { elapsed >= $0.duration }
+
+        if let sink = batchSink {
+            var batch: [(id: CGWindowID, rect: CGRect)] = []
+            batch.reserveCapacity(transitions.count)
+            for transition in transitions {
+                let rect = isFinal ? transition.to : transition.frame(at: elapsed, curve: curve)
+                lastSent[transition.window.windowID] = rect
+                onWrite?(transition.window.windowID, rect)
+                onVisualFrame?(transition.window.windowID, visualFrame(rect, for: transition.window.windowID))
+                batch.append((transition.window.windowID, rect))
+            }
+            sink(batch, isFinal)
+            if isFinal { finish() }
+            return
+        }
+
+        for transition in transitions {
+            let id = transition.window.windowID
+
+            if isFinal {
+                lastSent[id] = transition.to
+                onWrite?(id, transition.to)
+                onVisualFrame?(id, visualFrame(transition.to, for: id))
+                queue(for: transition.window.pid).async { [weak self, window = transition.window] in
+                    window.setFrame(transition.to)
+                    let actual = window.frame()
+                    DispatchQueue.main.async {
+                        self?.inFlight.remove(id)
+                        if let actual { self?.acceptActualFrame(actual, for: id) }
+                    }
+                }
+                continue
+            }
+
+            let visualRect = visualFrame(transition.frame(at: elapsed, curve: curve), for: id)
+            onVisualFrame?(id, visualRect)
+
+            guard !inFlight.contains(id) else { continue }
+            let axRect = CGRect(origin: visualRect.origin, size: transition.to.size)
+            guard let last = lastSent[id],
+                  !last.origin.approximatelyEqual(to: axRect.origin, tolerance: 0.25)
+            else { continue }
+
+            inFlight.insert(id)
+            lastSent[id] = axRect
+            onWrite?(id, axRect)
+            queue(for: transition.window.pid).async { [weak self, window = transition.window] in
+                window.setPosition(axRect.origin)
+                DispatchQueue.main.async { self?.inFlight.remove(id) }
+            }
+        }
+
+        if isFinal { finish() }
+    }
+
+    private func finish() {
+        stopDisplayLink()
+        transitions = []
+        currentTargets = [:]
+    }
+
+    private func visualFrame(_ requested: CGRect, for id: CGWindowID) -> CGRect {
+        CGRect(origin: requested.origin, size: presentedSizes[id] ?? requested.size)
+    }
+
+    /// AX 写回后的真实 frame 是焦点边框的最终权威，尤其是有最小尺寸约束的 App。
+    private func acceptActualFrame(_ actual: CGRect, for id: CGWindowID) {
+        let requestedSize = currentTargets[id]?.size ?? lastSent[id]?.size
+        presentedSizes[id] = actual.size
+        if let requestedSize,
+           abs(requestedSize.width - actual.width) > 2 || abs(requestedSize.height - actual.height) > 2 {
+            onConstrainedFrame?(id, actual)
+        }
+        if var cached = lastSent[id] {
+            cached.size = actual.size
+            lastSent[id] = cached
+            onVisualFrame?(id, CGRect(origin: cached.origin, size: actual.size))
+        } else {
+            lastSent[id] = actual
+            onVisualFrame?(id, actual)
+        }
+    }
+
+    // MARK: - 缓存维护
+
+    func invalidate(_ id: CGWindowID) {
+        lastSent.removeValue(forKey: id)
+        presentedSizes.removeValue(forKey: id)
+    }
+
+    func invalidateAll() {
+        lastSent.removeAll()
+        presentedSizes.removeAll()
+        // currentTargets / transitions 已由 cancel() 清理，这里兜底再清一次 inFlight 避免残留跳帧
+        inFlight.removeAll()
+    }
+
+    func forget(_ id: CGWindowID) {
+        lastSent.removeValue(forKey: id)
+        currentTargets.removeValue(forKey: id)
+        inFlight.remove(id)
+        presentedSizes.removeValue(forKey: id)
+        transitions.removeAll { $0.window.windowID == id }
+    }
+}
+
+private final class DisplayLinkProxy: NSObject {
+    weak var owner: FrameAnimator?
+    @objc func tick(_ link: CADisplayLink) {
+        owner?.handleDisplayLink(link)
+    }
+}
+
+private extension CGPoint {
+    func approximatelyEqual(to other: CGPoint, tolerance: CGFloat) -> Bool {
+        abs(x - other.x) <= tolerance && abs(y - other.y) <= tolerance
+    }
+}
