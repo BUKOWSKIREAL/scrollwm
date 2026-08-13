@@ -166,6 +166,14 @@ public struct Strip: Equatable, Sendable {
         columns[fi].savedFraction = nil
     }
 
+    /// 进入全宽并记住原宽。已是全宽则不变（保留已有 savedFraction）。
+    public mutating func enterFullWidth(id: WindowID) {
+        guard let idx = index(of: id) else { return }
+        guard columns[idx].fraction < 0.999 else { return }
+        columns[idx].savedFraction = columns[idx].fraction
+        columns[idx].fraction = 1.0
+    }
+
     /// 全宽开关：进入时记住原宽，退出时恢复；无记录时回退到 fallback
     public mutating func toggleFocusedFullWidth(fallback: Double) {
         guard let fi = focusedIndex else { return }
@@ -173,8 +181,7 @@ public struct Strip: Equatable, Sendable {
             columns[fi].fraction = columns[fi].savedFraction ?? fallback
             columns[fi].savedFraction = nil
         } else {
-            columns[fi].savedFraction = columns[fi].fraction
-            columns[fi].fraction = 1.0
+            enterFullWidth(id: columns[fi].id)
         }
     }
 }

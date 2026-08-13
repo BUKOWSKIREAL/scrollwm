@@ -142,6 +142,16 @@ final class StripTests: XCTestCase {
         XCTAssertEqual(strip.focusedColumn!.fraction, 0.15)
     }
 
+    func testEnterFullWidthSavesAndIsIdempotent() {
+        var strip = makeStrip([1, 2], focus: 2)
+        strip.enterFullWidth(id: 1)
+        XCTAssertEqual(strip.columns[0].fraction, 1.0)
+        XCTAssertEqual(strip.columns[0].savedFraction, 0.5)
+        XCTAssertEqual(strip.focusedID, 2, "enterFullWidth 不应改焦点")
+        strip.enterFullWidth(id: 1)
+        XCTAssertEqual(strip.columns[0].savedFraction, 0.5, "已全宽时不要覆盖 savedFraction")
+    }
+
     func testToggleFullWidthRestoresSavedFraction() {
         var strip = makeStrip([1], focus: 1)
         strip.adjustFocusedWidth(by: 0.1, minFraction: 0.15)  // 0.6

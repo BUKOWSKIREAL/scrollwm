@@ -33,6 +33,10 @@ final class WindowManager {
     // 拖拽跟踪：鼠标按住期间不与用户抢窗口
     private var externallyTouched: Set<CGWindowID> = []
     private var mouseMonitors: [Any] = []
+    /// 标题栏双击候选：这段时间内不要按旧列宽回弹，等系统 fill/zoom 落定。
+    private var zoomCandidateUntil: [CGWindowID: CFTimeInterval] = [:]
+    private var lastTitleClick: (id: CGWindowID, time: CFTimeInterval, point: CGPoint)?
+    private var settleWork: [CGWindowID: DispatchWorkItem] = [:]
 
     /// niri Mod+拖动：Command 按住后拖平铺窗口，松手按落点重排列序。
     private struct CommandDrag {
@@ -190,7 +194,7 @@ final class WindowManager {
         // 若恰好在 Mission Control/锁屏状态启动，optionOnScreenOnly 会暂时返回空集合；
         // 界面恢复后再扫一次即可收编，无需重启守护进程。
         scheduleReconcile(after: 2.0)
-        Log.info("窗口管理已启动：\(strip.count) 列")
+        Log.info("窗口管理已启动：\(strip.count) 列（\(Bundle.main.executablePath ?? "?"))")
     }
 
     private func rememberColumn(_ id: CGWindowID) {
@@ -366,8 +370,14 @@ final class WindowManager {
                 return fa < fb
             }
         for id in newIDs {
-            let fraction = restoredFraction(for: id, window: tileable[id], viewportWidth: viewportWidth)
-            let saved = rememberedColumns[id]?.savedFraction
+            var fraction = restoredFraction(for: id, window: tileable[id], viewportWidth: viewportWidth)
+            var saved = rememberedColumns[id]?.savedFraction
+            // 系统双击填满后若被短暂移出纸带，对账时窗口仍是满屏：
+            // 不能用离开前的旧列宽把窗口拽回去。
+            if let window = tileable[id], fillsTilingViewport(window), fraction < 0.98 {
+                saved = saved ?? fraction
+                fraction = 1.0
+            }
             Log.info("对账：新窗口入列 #\(id) fraction=\(String(format: "%.2f", fraction))")
             strip.append(id: id, fraction: fraction, savedFraction: saved)
         }
@@ -601,7 +611,7 @@ final class WindowManager {
             // 保存框、偏好设置、微信子窗口等非纸带窗口获得焦点时，不让旧亮边穿过它。
             focusRing.hide()
             // 焦点跑到另一块屏上的普通窗口：重建该屏纸带，避免外接屏继续用主屏几何。
-            if let window = windows[wid], isTileable(window) {
+            if let window = windows[wid], isTileable(window), !fillsTilingViewport(window) {
                 scheduleReconcile(after: 0.05)
             }
             return
@@ -651,56 +661,107 @@ final class WindowManager {
     /// moved/resized 事件：区分回声、用户拖拽、外部改动、视频全屏
     private func handleExternalFrameChange(_ id: CGWindowID) {
         guard let window = windows[id] else { return }
-
-        // 动画进行中产生的事件全部视为回声
-        if animator.hasTarget(for: id) { return }
         if commandDrag?.id == id { return }
 
-        if let pending = pendingFrames[id] {
-            if let current = window.frame(),
-               current.approximatelyEqual(to: pending.rect, tolerance: 2.0) {
-                pendingFrames.removeValue(forKey: id)
-                return  // 我们下发的帧已落位
+        // 标题栏双击后的系统 fill 动画：不要中途按旧列宽回弹
+        if isZoomCandidate(id) { return }
+
+        guard let current = window.frame() else { return }
+
+        // 动画/回声：接近我们下发的帧才吞掉。尺寸骤变是系统 zoom，不是回声。
+        if animator.hasTarget(for: id) {
+            if let target = animator.currentTargets[id], !isExternalSizeJump(from: target, to: current) {
+                return
             }
-            if CACurrentMediaTime() - pending.timestamp < 1.0 {
-                return  // 还在落位过程中的中间帧
+            animator.cancelAnimation(for: id)
+        }
+
+        if let pending = pendingFrames[id] {
+            if current.approximatelyEqual(to: pending.rect, tolerance: 2.0) {
+                pendingFrames.removeValue(forKey: id)
+                return
+            }
+            if CACurrentMediaTime() - pending.timestamp < 1.0,
+               !isExternalSizeJump(from: pending.rect, to: current) {
+                return
             }
             pendingFrames.removeValue(forKey: id)
         }
 
         guard !paused else { return }
 
-        if isSystemFullscreen(window) {
+        if window.isFullscreen {
             parkForFullscreen(id)
             return
         }
 
         // 退出全屏后重新收编，用记住的列宽而不是当前的满屏尺寸
         if !strip.contains(id) {
-            if isTileable(window, on: layoutScreen()), !floating.contains(id) {
+            if isTileable(window, on: layoutScreen()), !floating.contains(id),
+               !fillsTilingViewport(window) {
                 scheduleReconcile(after: 0.08)
             }
             return
         }
 
-        // 外部真实改动：作废写缓存，后续布局读取真实帧
         animator.invalidate(id)
 
         if NSEvent.pressedMouseButtons & 0x1 != 0 {
-            // 用户拖拽中：不抢，松手后统一结算
             externallyTouched.insert(id)
             return
         }
 
-        // 无拖拽却突然铺满视口：多半是网页视频全屏，不要当成用户把列宽拉满
-        if fillsTilingViewport(window),
-           (strip.columns.first { $0.id == id }?.fraction ?? 1) < 0.98 {
+        // 系统 fill/zoom 会连发 moved+resized。先等落定再决定全宽还是吸收列宽。
+        scheduleSettle(id, after: 0.22)
+    }
+
+    private func isExternalSizeJump(from old: CGRect, to new: CGRect) -> Bool {
+        abs(new.width - old.width) > 40 || abs(new.height - old.height) > 40
+    }
+
+    private func isZoomCandidate(_ id: CGWindowID) -> Bool {
+        guard let until = zoomCandidateUntil[id] else { return false }
+        if CACurrentMediaTime() < until { return true }
+        zoomCandidateUntil.removeValue(forKey: id)
+        return false
+    }
+
+    private func scheduleSettle(_ id: CGWindowID, after delay: TimeInterval) {
+        settleWork[id]?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            self?.settleExternalFrame(id)
+        }
+        settleWork[id] = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+    }
+
+    private func settleExternalFrame(_ id: CGWindowID) {
+        settleWork[id] = nil
+        zoomCandidateUntil.removeValue(forKey: id)
+        guard !paused, commandDrag == nil, let window = windows[id] else { return }
+
+        if window.isFullscreen {
             parkForFullscreen(id)
             return
         }
+        if !strip.contains(id) {
+            if isTileable(window, on: layoutScreen()), !floating.contains(id),
+               !fillsTilingViewport(window) {
+                scheduleReconcile(after: 0.05)
+            }
+            return
+        }
 
+        animator.invalidate(id)
+        if adoptZoomedFill(id) {
+            scheduleRetile(after: 0.02)
+            return
+        }
+        if let frame = window.frame() {
+            Log.info("外部改帧落定 #\(id) \(Int(frame.width))x\(Int(frame.height))")
+        }
         adoptExternalWidth(id)
-        scheduleRetile(after: 0.08)
+        scheduleRetile(after: 0.02)
     }
 
     private func parkForFullscreen(_ id: CGWindowID) {
@@ -716,9 +777,17 @@ final class WindowManager {
         guard let frame = window.frame(),
               let ns = ScreenGeometry.screen(containingAX: frame) ?? layoutScreen()
         else { return false }
-        let viewport = LayoutEngine.viewport(screen: ScreenGeometry.axVisible(of: ns), spec: spec)
-        return abs(frame.width - viewport.width) <= 10
-            && abs(frame.height - viewport.height) <= 10
+        let visible = ScreenGeometry.axVisible(of: ns)
+        let viewport = LayoutEngine.viewport(screen: visible, spec: spec)
+        func nearlyFills(_ target: CGRect) -> Bool {
+            guard target.width > 1, target.height > 1 else { return false }
+            return frame.width >= target.width * 0.9
+                && frame.height >= target.height * 0.9
+                && frame.width >= target.width - 32
+                && frame.height >= target.height - 32
+        }
+        // 纸带视口、系统「填满」可见区，或盖住整屏（含菜单栏）都算铺满。
+        return nearlyFills(viewport) || nearlyFills(visible) || nearlyFills(ScreenGeometry.axFull(of: ns))
     }
 
     private func commandModifierHeld(on event: NSEvent) -> Bool {
@@ -730,7 +799,11 @@ final class WindowManager {
     private func handleMouse(_ event: NSEvent) {
         switch event.type {
         case .leftMouseDown:
-            if commandModifierHeld(on: event) { beginCommandDragIfNeeded() }
+            if commandModifierHeld(on: event) {
+                beginCommandDragIfNeeded()
+            } else {
+                noteTitleBarClick()
+            }
         case .leftMouseDragged:
             if commandDrag == nil, commandModifierHeld(on: event) {
                 beginCommandDragIfNeeded()
@@ -744,6 +817,68 @@ final class WindowManager {
             }
         default:
             break
+        }
+    }
+
+    /// 标题栏双击命中检测。铺满由 beginTitleBarZoom 自己下发，不依赖 App 是否真的 fill。
+    private func noteTitleBarClick() {
+        let ax = ScreenGeometry.axPoint(fromAppKit: NSEvent.mouseLocation)
+        guard let id = tiledWindowID(atAX: ax),
+              let frame = windows[id]?.frame()
+        else {
+            lastTitleClick = nil
+            return
+        }
+        // 跳过交通灯；顶栏约 52pt 是双击填满的命中区。
+        let titleBand = CGRect(
+            x: frame.minX + 78,
+            y: frame.minY,
+            width: max(0, frame.width - 78),
+            height: 52
+        )
+        guard titleBand.contains(ax) else {
+            lastTitleClick = nil
+            return
+        }
+        let now = CACurrentMediaTime()
+        if let last = lastTitleClick,
+           last.id == id,
+           now - last.time <= NSEvent.doubleClickInterval,
+           hypot(ax.x - last.point.x, ax.y - last.point.y) <= 8 {
+            lastTitleClick = nil
+            beginTitleBarZoom(id)
+            return
+        }
+        lastTitleClick = (id, now, ax)
+    }
+
+    /// 标题栏双击 = 我们自己切换全宽（与 alt-f 相同）。
+    /// 不能等系统 fill：Terminal 等 App 的双击是「按内容缩放」，窗口不会铺满，
+    /// 若再按那个尺寸吸收列宽，看起来就是铺满被立刻拉回去。
+    private func beginTitleBarZoom(_ id: CGWindowID) {
+        guard strip.contains(id) else { return }
+        retileWork?.cancel()
+        settleWork[id]?.cancel()
+        animator.cancelAnimation(for: id)
+        pendingFrames.removeValue(forKey: id)
+        externallyTouched.remove(id)
+        strip.focus(id: id)
+        lastFocusedID = id
+
+        let wasFull = (strip.columns.first { $0.id == id }?.fraction ?? 0) >= 0.98
+        if wasFull {
+            strip.toggleFocusedFullWidth(fallback: config.defaultWidth)
+            Log.info("标题栏双击 #\(id) 退出全宽")
+        } else {
+            strip.enterFullWidth(id: id)
+            Log.info("标题栏双击 #\(id) 进入全宽")
+        }
+
+        zoomCandidateUntil[id] = CACurrentMediaTime() + 1.2
+        scheduleRetile(after: 0.08)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+            guard let self, self.strip.contains(id), self.commandDrag == nil, !self.paused else { return }
+            self.retile()
         }
     }
 
@@ -786,6 +921,8 @@ final class WindowManager {
 
         retileWork?.cancel()
         reconcileWork?.cancel()
+        settleWork[id]?.cancel()
+        zoomCandidateUntil.removeValue(forKey: id)
         animator.cancel()
         animator.invalidate(id)
         externallyTouched.insert(id)
@@ -881,12 +1018,39 @@ final class WindowManager {
 
     private func mouseDidRelease() {
         guard commandDrag == nil, !externallyTouched.isEmpty else { return }
-        for id in externallyTouched {
-            adoptExternalWidth(id)
-        }
+        let ids = externallyTouched
         externallyTouched.removeAll()
-        // 位置回弹到纸带布局，宽度已被吸收进列分数
-        scheduleRetile(after: 0.05)
+        for id in ids {
+            if isZoomCandidate(id) { continue }
+            let current = windows[id]?.frame()
+            let cached = animator.lastSent[id]
+            // 纯拖动（尺寸没变）：立刻回弹到纸带。尺寸变了则可能是 zoom，等落定。
+            if let current, let cached,
+               abs(current.width - cached.width) <= 8,
+               abs(current.height - cached.height) <= 8 {
+                if current.approximatelyEqual(to: cached, tolerance: 8) {
+                    continue
+                }
+                adoptExternalWidth(id)
+                scheduleRetile(after: 0.05)
+            } else {
+                scheduleSettle(id, after: 0.22)
+            }
+        }
+    }
+
+    /// 标题栏双击填满屏幕：进入全宽列并保留原宽，便于再按 alt-f 还原。
+    @discardableResult
+    private func adoptZoomedFill(_ id: CGWindowID) -> Bool {
+        guard let window = windows[id], fillsTilingViewport(window) else { return false }
+        guard let column = strip.columns.first(where: { $0.id == id }),
+              column.fraction < 0.98
+        else { return false }
+        strip.focus(id: id)
+        lastFocusedID = id
+        strip.enterFullWidth(id: id)
+        Log.info("铺满：#\(id) \(Int(window.frame()?.width ?? 0))x\(Int(window.frame()?.height ?? 0)) 进入全宽（保留列宽 \(String(format: "%.2f", column.fraction))）")
+        return true
     }
 
     /// 用户手动改了窗口宽度 → 吸收为列宽分数（niri 交互式调宽的精神）
@@ -955,7 +1119,7 @@ final class WindowManager {
         lastFocusedID = focused.windowID
         guard strip.contains(focused.windowID) else {
             focusRing.hide()
-            if isTileable(focused) {
+            if isTileable(focused), !fillsTilingViewport(focused) {
                 scheduleReconcile(after: 0.05)
             }
             return
@@ -977,6 +1141,9 @@ final class WindowManager {
         animator.invalidateAll()
         pendingFrames.removeAll()
         externallyTouched.removeAll()
+        zoomCandidateUntil.removeAll()
+        settleWork.values.forEach { $0.cancel() }
+        settleWork.removeAll()
         stopCommandDragPoll()
         commandDrag = nil
         // 系统的 Space 切场动画约 0.5s，activeSpaceDidChange 在动画结束后才发，

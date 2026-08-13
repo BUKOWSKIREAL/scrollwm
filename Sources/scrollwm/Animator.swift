@@ -225,6 +225,16 @@ final class FrameAnimator {
         currentTargets = [:]
     }
 
+    /// 停掉单个窗口的动画，其它窗口继续。系统 zoom/fill 时必须立刻放手。
+    func cancelAnimation(for id: CGWindowID) {
+        currentTargets.removeValue(forKey: id)
+        inFlight.remove(id)
+        transitions.removeAll { $0.window.windowID == id }
+        if transitions.isEmpty {
+            stopDisplayLink()
+        }
+    }
+
     // MARK: - DisplayLink
 
     private func startDisplayLink(on screen: NSScreen?) {
