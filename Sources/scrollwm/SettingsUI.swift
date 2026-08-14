@@ -500,6 +500,12 @@ private struct GeneralTab: View {
                         .pickerStyle(.menu)
                         .frame(maxWidth: 240, alignment: .leading)
                     }
+
+                    Divider().padding(.vertical, 4)
+
+                    Toggle(L10n.text("settings.compositor.enabled"), isOn: model.binding(\.compositorEnabled))
+                    Text(L10n.text("settings.compositor.note"))
+                        .font(.caption).foregroundStyle(.secondary)
                 }
                 .font(.subheadline)
             }
@@ -559,14 +565,6 @@ private struct ToolsTab: View {
                              commit: { v in model.update { $0.focusRingGlowRadius = v } })
             }
             AppsTab()
-            DisclosureGroup(L10n.text("settings.compositor.title")) {
-                Toggle(L10n.text("settings.compositor.enabled"), isOn: model.binding(\.compositorEnabled))
-                Text(L10n.text("settings.compositor.note"))
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            .padding(14)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .modifier(GlassCard())
         }
     }
 }

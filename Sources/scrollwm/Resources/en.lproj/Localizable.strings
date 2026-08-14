@@ -94,7 +94,6 @@
 "settings.ring.glow" = "Glow Radius";
 
 /* Compositor */
-"settings.compositor.title" = "Advanced: Compositor Animation";
 "settings.compositor.enabled" = "Enable SkyLight Compositor";
 "settings.compositor.note" = "Requires partially disabling SIP and injecting into Dock, otherwise it falls back automatically. See docs/COMPOSITOR-SETUP.md.";
 

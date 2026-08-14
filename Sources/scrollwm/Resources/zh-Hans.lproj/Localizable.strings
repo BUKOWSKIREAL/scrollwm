@@ -94,7 +94,6 @@
 "settings.ring.glow" = "外发光";
 
 /* 合成器 */
-"settings.compositor.title" = "高级：合成器动画";
 "settings.compositor.enabled" = "启用 SkyLight 合成器";
 "settings.compositor.note" = "需部分关闭 SIP 并注入 Dock，否则自动回退。见 docs/COMPOSITOR-SETUP.md。";
 
