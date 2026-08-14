@@ -30,8 +30,21 @@ if [ -f Support/Assets.car ]; then
   /usr/libexec/PlistBuddy -c "Delete :CFBundleIconFile" "$APP/Contents/Info.plist" 2>/dev/null || true
 fi
 
-# 本地化资源包（SwiftPM 生成的 scrollwm_scrollwm.bundle，含 zh-Hans/en 文案）
 RES_BUNDLE="$(swift build -c "$CONFIG" --show-bin-path)/scrollwm_scrollwm.bundle"
+
+# 字体资源：ATSApplicationFontsPath=Fonts，要求放在 Contents/Resources/Fonts
+mkdir -p "$APP/Contents/Resources/Fonts"
+if [ -d Sources/scrollwm/Resources/Fonts ]; then
+  cp Sources/scrollwm/Resources/Fonts/*.ttf "$APP/Contents/Resources/Fonts/" 2>/dev/null || true
+fi
+if [ -d "$RES_BUNDLE/Contents/Resources/Fonts" ]; then
+  cp "$RES_BUNDLE/Contents/Resources/Fonts/"*.ttf "$APP/Contents/Resources/Fonts/" 2>/dev/null || true
+fi
+if [ -d "$RES_BUNDLE" ]; then
+  find "$RES_BUNDLE" -maxdepth 3 -name "*.ttf" -exec cp {} "$APP/Contents/Resources/Fonts/" \; 2>/dev/null || true
+fi
+
+# 本地化资源包（SwiftPM 生成的 scrollwm_scrollwm.bundle，含 zh-Hans/en 文案）
 if [ -d "$RES_BUNDLE" ]; then
   cp -R "$RES_BUNDLE" "$APP/Contents/Resources/scrollwm_scrollwm.bundle"
 fi

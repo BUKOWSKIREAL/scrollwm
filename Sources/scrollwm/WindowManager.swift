@@ -77,6 +77,8 @@ final class WindowManager {
     private var stickyUntil: [CGWindowID: CFTimeInterval] = [:]
     /// 已有列从全屏/Space 恢复后的短静默期：只吞 moved/resized 回声，不强制写帧。
     private var restoredQuietUntil: [CGWindowID: CFTimeInterval] = [:]
+    /// 切焦点时系统 frontmost 会滞后几十到几百毫秒；这段时间不要因 pid 对不上把亮边拆掉。
+    private var focusTransitionUntil: CFTimeInterval = 0
     /// 新入列窗口不要从屏幕中央弹簧滑到目标列，直接落位。
     private var pendingInstantPlace = Set<CGWindowID>()
     /// 最近一次布局下发的目标帧，开启动画弹回时仍按这个强制铺满。
@@ -111,6 +113,7 @@ final class WindowManager {
                   !self.fullscreenFocusRingSuppressed.contains(id)
             else { return }
             if !self.config.focusRingAlwaysOn,
+               !self.isInFocusTransition,
                NSWorkspace.shared.frontmostApplication?.processIdentifier != self.windows[id]?.pid { return }
             guard let window = self.windows[id] else { return }
             self.focusRing.show(windowID: id, pid: window.pid, axFrame: rect)
@@ -157,6 +160,7 @@ final class WindowManager {
             return
         }
         if !config.focusRingAlwaysOn,
+           !isInFocusTransition,
            NSWorkspace.shared.frontmostApplication?.processIdentifier != window.pid {
             focusRing.hide()
             return
@@ -1045,9 +1049,21 @@ final class WindowManager {
     private func handleFocusChanged(element: AXUIElement) {
         var wid: CGWindowID = 0
         var pid: pid_t = 0
-        guard _AXUIElementGetWindow(element, &wid) == .success, wid != 0,
-              AXUIElementGetPid(element, &pid) == .success,
-              NSWorkspace.shared.frontmostApplication?.processIdentifier == pid
+        if AXUIElementGetPid(element, &pid) != .success {
+            if !isInFocusTransition { focusRing.hideIfNotAlwaysOn() }
+            return
+        }
+        if _AXUIElementGetWindow(element, &wid) != .success || wid == 0 {
+            // 通知挂在 App 元素上时拿不到 windowID，改为读当前焦点窗口。
+            guard let focused = apps[pid]?.focusedWindow() else {
+                if !isInFocusTransition { focusRing.hideIfNotAlwaysOn() }
+                return
+            }
+            wid = focused.windowID
+            pid = focused.pid
+        }
+        guard isInFocusTransition
+                || NSWorkspace.shared.frontmostApplication?.processIdentifier == pid
         else {
             focusRing.hideIfNotAlwaysOn()
             return
@@ -1059,7 +1075,14 @@ final class WindowManager {
             return
         }
         guard strip.contains(wid) else {
-            // 保存框、偏好设置、微信子窗口等非纸带窗口获得焦点时，不让旧亮边穿过它。
+            // 同一 App 的内容子窗口（浏览器网页、Electron 视窗）也会改 focused-window，
+            // 不能把纸带焦点列上的亮边藏掉，否则一点内容就闪。
+            if let current = strip.focusedID, windows[current]?.pid == pid {
+                if let window = windows[wid], tryEnrollNewWindow(window) {
+                    refreshFocusRing()
+                }
+                return
+            }
             focusRing.hideIfNotAlwaysOn()
             if let window = windows[wid], tryEnrollNewWindow(window) {
                 refreshFocusRing()
@@ -1068,17 +1091,19 @@ final class WindowManager {
             if nativeFullscreenParked.contains(wid) {
                 scheduleFullscreenExitCatchup(wid)
             }
-            // 焦点跑到另一块屏上的普通窗口：重建该屏纸带，避免外接屏继续用主屏几何。
             if let window = windows[wid], isTileable(window), !fillsTilingViewport(window) {
                 scheduleReconcile(after: 0.05)
             }
             return
         }
         if strip.focusedID != wid {
+            beginFocusTransition()
             strip.focus(id: wid)
             scheduleRetile(after: 0.02)
+            refreshFocusRing()
+            return
         }
-        refreshFocusRing()
+        // 同一窗口内部点击不再动 overlay 层级：环已高于普通窗口，order 本身会闪。
     }
 
     private func handleWindowGone(_ id: CGWindowID) {
@@ -1381,12 +1406,6 @@ final class WindowManager {
                 let ax = ScreenGeometry.axPoint(fromAppKit: NSEvent.mouseLocation)
                 let hit = tiledWindowID(atAX: ax)
                 noteTitleBarClick(hit: hit, at: ax)
-                // 点击已聚焦窗口时系统把窗口抬到最顶、盖住同级的边框面板，
-                // 且这种点击不产生 AX 焦点通知；点落点检测到是焦点列时立即重排。
-                if let focused = strip.focusedID, hit == focused,
-                   !fullscreenFocusRingSuppressed.contains(focused) {
-                    focusRing.reorderAbove(focused)
-                }
             }
         case .leftMouseDragged:
             if commandDrag == nil, commandModifierHeld(on: event) {
@@ -1731,15 +1750,18 @@ final class WindowManager {
         guard !paused,
               let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
         else {
-            focusRing.hideIfNotAlwaysOn()
+            if !isInFocusTransition { focusRing.hideIfNotAlwaysOn() }
             return
         }
 
-        // App 激活通知先于 AX focusedWindow 就绪很常见。任何不确定状态先隐藏旧边框，
-        // 再尝试即时收编；稍后 focused-window 通知/对账会恢复正确边框。
-        focusRing.hideIfNotAlwaysOn()
         let axApp = apps[app.processIdentifier] ?? adoptApp(app)
         guard let focused = axApp?.focusedWindow() else {
+            if let current = strip.focusedID, windows[current]?.pid == app.processIdentifier {
+                return
+            }
+            if !isInFocusTransition {
+                focusRing.hideIfNotAlwaysOn()
+            }
             scheduleReconcile(after: 0.12)
             return
         }
@@ -1749,6 +1771,9 @@ final class WindowManager {
             return
         }
         guard strip.contains(focused.windowID) else {
+            if let current = strip.focusedID, windows[current]?.pid == focused.pid {
+                return
+            }
             focusRing.hideIfNotAlwaysOn()
             if nativeFullscreenParked.contains(focused.windowID) {
                 scheduleFullscreenExitCatchup(focused.windowID)
@@ -1759,10 +1784,13 @@ final class WindowManager {
             return
         }
         if strip.focusedID != focused.windowID {
+            beginFocusTransition()
             strip.focus(id: focused.windowID)
             scheduleRetile(after: 0.02)
+            refreshFocusRing()
+            return
         }
-        refreshFocusRing()
+        // 已经在这个 App 的焦点列上：点击内容也会再发 activate，不要 hide/order。
     }
 
     @objc private func spaceChanged(_ note: Notification) {
@@ -1923,15 +1951,24 @@ final class WindowManager {
     /// 把焦点真正交给窗口：AXRaise + 激活所属 App
     private func focusWindow(_ id: CGWindowID) {
         guard let window = windows[id] else { return }
-        // activate 尚未完成前先隐藏旧边框，避免它穿过新前台窗口。
-        // 常驻模式下也先隐藏，refreshFocusRing 会在下一帧重新显示到新焦点
-        focusRing.hide()
+        beginFocusTransition()
+        lastFocusedID = id
+        // 先把亮边贴到新窗口当前几何，再 raise/activate。frontmost 滞后时不要 hide，
+        // 否则会灭一帧再亮，切列看起来像抽搐。
+        refreshFocusRing()
         window.raise()
         if let app = NSRunningApplication(processIdentifier: window.pid) {
             app.activate(options: [])
         }
-        lastFocusedID = id
-        DispatchQueue.main.async { [weak self] in self?.refreshFocusRing() }
+    }
+
+    private func beginFocusTransition() {
+        focusTransitionUntil = CACurrentMediaTime() + 0.45
+        focusRing.beginFrontmostGrace()
+    }
+
+    private var isInFocusTransition: Bool {
+        CACurrentMediaTime() < focusTransitionUntil
     }
 
     private func toggleFloat() {

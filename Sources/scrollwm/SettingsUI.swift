@@ -213,7 +213,7 @@ struct SettingsRootView: View {
             }
             if let error = model.lastError {
                 Label(error, systemImage: "exclamationmark.triangle.fill")
-                    .font(.caption)
+                    .font(AppFonts.caption)
                     .foregroundStyle(.orange)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -236,7 +236,7 @@ private struct SlidingPillBar: View {
             ForEach(SettingsSection.allCases) { item in
                 let on = selection == item
                 Text(item.title)
-                    .font(.system(size: 13, weight: on ? .semibold : .medium))
+                    .font(AppFonts.jbMono(size: 13, weight: on ? .semibold : .medium))
                     .foregroundStyle(on ? Color.black : unselectedForeground)
                     .padding(.horizontal, 22)
                     .padding(.vertical, 6)
@@ -359,7 +359,7 @@ struct Pane<Content: View>: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(title).font(.headline)
+            Text(title).font(AppFonts.headline)
             content
         }
         .padding(14)
@@ -403,7 +403,7 @@ private struct GeneralTab: View {
                 .labelsHidden()
                 .frame(maxWidth: 320, alignment: .leading)
                 Text(L10n.text("settings.language.note"))
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(AppFonts.caption).foregroundStyle(.secondary)
             }
             Pane(title: L10n.text("settings.layout.title")) {
                 NumberSlider(title: L10n.text("settings.layout.innerGap"), range: 0...48, step: 1,
@@ -425,7 +425,7 @@ private struct GeneralTab: View {
                              value: model.config.resizeStep, format: { String(format: "%.2f", $0) },
                              commit: { v in model.update { $0.resizeStep = v } })
                 Text(L10n.text("settings.layout.resizeStepNote"))
-                    .font(.caption)
+                    .font(AppFonts.caption)
                     .foregroundStyle(.secondary)
 
                 HStack {
@@ -477,7 +477,7 @@ private struct GeneralTab: View {
                 Toggle(L10n.text("settings.animation.highFrameRate"), isOn: model.binding(\.animationHighFrameRate))
                     .disabled(!model.config.animationEnabled)
                 Text(L10n.text("settings.animation.highFrameRateNote"))
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(AppFonts.caption).foregroundStyle(.secondary)
 
                 DisclosureGroup(L10n.text("settings.animation.advanced"), isExpanded: $showAdvanced) {
                     if model.config.animationMode == .spring {
@@ -505,9 +505,9 @@ private struct GeneralTab: View {
 
                     Toggle(L10n.text("settings.compositor.enabled"), isOn: model.binding(\.compositorEnabled))
                     Text(L10n.text("settings.compositor.note"))
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(AppFonts.caption).foregroundStyle(.secondary)
                 }
-                .font(.subheadline)
+                .font(AppFonts.subheadline)
             }
         }
     }
@@ -554,7 +554,7 @@ private struct ToolsTab: View {
                 Text(model.config.focusRingAlwaysOn
                      ? L10n.text("settings.ring.alwaysOnNoteOn")
                      : L10n.text("settings.ring.alwaysOnNoteOff"))
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(AppFonts.caption).foregroundStyle(.secondary)
                 NumberSlider(title: L10n.text("settings.ring.borderWidth"), range: 1...8, step: 1,
                              value: model.config.focusRingWidth, format: { "\(Int($0))" },
                              preview: { v in model.preview { $0.focusRingWidth = v } },
@@ -578,9 +578,9 @@ private struct AppsTab: View {
     var body: some View {
         let ignored = model.config.ignoreBundleIDs.sorted()
         VStack(alignment: .leading, spacing: 10) {
-            Text(L10n.text("settings.apps.title")).font(.headline)
+            Text(L10n.text("settings.apps.title")).font(AppFonts.headline)
             Text(L10n.text("settings.apps.subtitle"))
-                .font(.subheadline)
+                .font(AppFonts.subheadline)
                 .foregroundStyle(.secondary)
 
             if ignored.isEmpty {
@@ -688,8 +688,8 @@ private struct IgnoredAppRow: View {
                     .overlay(Image(systemName: "app.fill").foregroundStyle(.secondary))
             }
             VStack(alignment: .leading, spacing: 2) {
-                Text(info.name).font(.system(size: 13, weight: .medium)).lineLimit(1)
-                Text(bundleID).font(.system(size: 10)).monospaced(true).foregroundStyle(.secondary).lineLimit(1)
+                Text(info.name).font(AppFonts.jbMono(size: 13, weight: .medium)).lineLimit(1)
+                Text(bundleID).font(AppFonts.jbMonoMono(size: 10)).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer()
             Button { onRemove() } label: {
@@ -725,9 +725,9 @@ private struct AppPickerSheet: View {
         VStack(spacing: 0) {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(L10n.text("settings.apps.pickerTitle")).font(.headline)
+                    Text(L10n.text("settings.apps.pickerTitle")).font(AppFonts.headline)
                     Text(L10n.text("settings.apps.pickerSubtitle"))
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(AppFonts.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
                 Button(L10n.text("settings.apps.pickerDone")) { dismiss() }
@@ -753,7 +753,7 @@ private struct AppPickerSheet: View {
             if loading {
                 VStack(spacing: 10) {
                     ProgressView().scaleEffect(0.9)
-                    Text(L10n.text("settings.apps.pickerScanning")).font(.caption).foregroundStyle(.secondary)
+                    Text(L10n.text("settings.apps.pickerScanning")).font(AppFonts.caption).foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if filtered.isEmpty {
@@ -837,13 +837,13 @@ private struct AppPickerRow: View {
                 .frame(width: 28, height: 28)
                 .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
             VStack(alignment: .leading, spacing: 2) {
-                Text(entry.name).font(.system(size: 13, weight: .medium)).lineLimit(1)
-                Text(entry.bundleID).font(.system(size: 10)).monospaced(true).foregroundStyle(.secondary).lineLimit(1)
+                Text(entry.name).font(AppFonts.jbMono(size: 13, weight: .medium)).lineLimit(1)
+                Text(entry.bundleID).font(AppFonts.jbMonoMono(size: 10)).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer()
             if isIgnored {
                 Label(L10n.text("settings.apps.pickerIgnored"), systemImage: "checkmark.circle.fill")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(AppFonts.caption).foregroundStyle(.secondary)
                     .labelStyle(.titleAndIcon)
             } else {
                 Button(L10n.text("common.add")) { onAdd() }
@@ -867,7 +867,7 @@ private struct BindingsTab: View {
         TabScaffold {
             Pane(title: L10n.text("settings.section.keys")) {
                 Text(L10n.text("settings.keys.hint"))
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(AppFonts.caption).foregroundStyle(.secondary)
                 VStack(spacing: 2) {
                     ForEach(WMAction.allCases.filter { $0 != .unbind }, id: \.self) { action in
                         actionRow(action)
@@ -882,7 +882,7 @@ private struct BindingsTab: View {
         let combos = model.combos(for: action)
         HStack(alignment: .top, spacing: 10) {
             Text(action.title)
-                .font(.system(size: 13))
+                .font(AppFonts.jbMono(size: 13))
                 .frame(width: 88, alignment: .leading)
                 .padding(.top, 5)
             FlowLayout(spacing: 6) {
@@ -891,7 +891,7 @@ private struct BindingsTab: View {
                 }
                 if combos.isEmpty {
                     Text(L10n.text("settings.keys.unbound"))
-                        .font(.system(size: 11))
+                        .font(AppFonts.jbMono(size: 11))
                         .foregroundStyle(.tertiary)
                         .padding(.top, 5)
                 }
@@ -906,14 +906,14 @@ private struct BindingsTab: View {
     private func comboChip(_ combo: String) -> some View {
         HStack(spacing: 4) {
             Text(KeyComboText.display(combo))
-                .font(.system(size: 12, weight: .medium, design: .rounded))
+                .font(AppFonts.jbMono(size: 12, weight: .medium))
                 .lineLimit(1)
                 .fixedSize()
             Button {
                 model.unbind(combo)
             } label: {
                 Image(systemName: "xmark.circle.fill")
-                    .font(.system(size: 11))
+                    .font(AppFonts.jbMono(size: 11))
             }
             .buttonStyle(.plain)
             .foregroundStyle(.secondary)

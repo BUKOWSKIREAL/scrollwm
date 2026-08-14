@@ -537,7 +537,7 @@ struct WelcomeRootView: View {
                 GhostButton(title: L10n.text("welcome.back")) { model.retreat() }
             } else {
                 Text(L10n.text("welcome.escSkip"))
-                    .font(.system(size: 11.5))
+                    .font(AppFonts.jbMono(size: 11.5))
                     .foregroundStyle(.white.opacity(0.28))
             }
             Spacer()
@@ -639,7 +639,7 @@ struct WelcomeKeycap: View {
 
     var body: some View {
         Text(label)
-            .font(.system(size: 12, weight: .semibold, design: .rounded))
+            .font(AppFonts.jbMono(size: 12, weight: .semibold))
             .foregroundStyle(.white.opacity(0.82))
             .padding(.horizontal, 9)
             .padding(.vertical, 6)
@@ -662,7 +662,7 @@ private struct GlyphButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: symbol)
-                .font(.system(size: 11, weight: .semibold))
+                .font(AppFonts.jbMono(size: 11, weight: .semibold))
                 .foregroundStyle(.white.opacity(hovering ? 0.95 : 0.5))
                 .frame(width: 26, height: 26)
                 .background(Circle().fill(.white.opacity(hovering ? 0.12 : 0.05)))
@@ -684,9 +684,9 @@ struct PrimaryButton: View {
         Button(action: action) {
             HStack(spacing: 12) {
                 Text(title)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(AppFonts.jbMono(size: 13, weight: .semibold))
                 Image(systemName: symbol)
-                    .font(.system(size: 9.5, weight: .bold))
+                    .font(AppFonts.jbMono(size: 9.5, weight: .bold))
                     .frame(width: 24, height: 24)
                     .background(Circle().fill(.white.opacity(0.16)))
                     .offset(x: hovering ? 2 : 0)
@@ -730,7 +730,7 @@ struct GhostButton: View {
     var body: some View {
         Button(action: action) {
             Text(title)
-                .font(.system(size: 12.5, weight: .medium))
+                .font(AppFonts.jbMono(size: 12.5, weight: .medium))
                 .foregroundStyle(.white.opacity(hovering ? 0.9 : 0.5))
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)

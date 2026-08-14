@@ -54,6 +54,7 @@ if arguments.contains("--help") || arguments.contains("-h") {
 // Config.load() 在文件缺失时会写出默认模板，与 AppDelegate 后续行为一致。
 let (bootConfig, _) = Config.load()
 bootConfig.language.apply()
+AppFonts.register()
 
 let app = NSApplication.shared
 let delegate = AppDelegate()

@@ -21,19 +21,19 @@ struct OvertureScene: View {
                         .frame(width: 5, height: 5)
                         .shadow(color: WelcomePalette.blue, radius: 6)
                     Text("WELCOME TO A DIFFERENT DESKTOP")
-                        .font(.system(size: 9.5, weight: .semibold))
+                        .font(AppFonts.jbMono(size: 9.5, weight: .semibold))
                         .tracking(2.1)
                         .foregroundStyle(.white.opacity(0.42))
                 }
                 .padding(.bottom, 18)
 
                 Text("ScrollWM")
-                    .font(.system(size: 54, weight: .ultraLight))
+                    .font(AppFonts.jbMono(size: 54, weight: .ultraLight))
                     .tracking(4)
                     .foregroundStyle(.white.opacity(0.96))
 
                 Text(L10n.text("welcome.overture.tagline"))
-                    .font(.system(size: 21, weight: .medium))
+                    .font(AppFonts.jbMono(size: 21, weight: .medium))
                     .foregroundStyle(.white.opacity(0.82))
                     .padding(.top, 20)
 
@@ -41,14 +41,14 @@ struct OvertureScene: View {
                     Text(L10n.text("welcome.overture.line1"))
                     Text(L10n.text("welcome.overture.line2"))
                 }
-                .font(.system(size: 13.5))
+                .font(AppFonts.jbMono(size: 13.5))
                 .foregroundStyle(.white.opacity(0.48))
                 .padding(.top, 10)
 
                 HStack(spacing: 10) {
                     WelcomeKeycap(label: "Enter")
                     Text(L10n.text("welcome.overture.pressEnter"))
-                        .font(.system(size: 11.5, weight: .medium))
+                        .font(AppFonts.jbMono(size: 11.5, weight: .medium))
                         .foregroundStyle(.white.opacity(0.36))
                 }
                 .padding(.top, 28)
@@ -296,7 +296,7 @@ private struct DemoWindow: View {
                     .frame(width: 7, height: 7)
             }
             Text(app.name)
-                .font(.system(size: 9.5, weight: .medium))
+                .font(AppFonts.jbMono(size: 9.5, weight: .medium))
                 .foregroundStyle(.white.opacity(focused ? 0.7 : 0.4))
                 .padding(.leading, 4)
                 .lineLimit(1)
@@ -357,7 +357,7 @@ private struct KeyCapRow: View {
     var body: some View {
         HStack(spacing: 10) {
             Text(action.defaultCombo.map(KeyComboText.display) ?? "—")
-                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                .font(AppFonts.jbMono(size: 13, weight: .semibold))
                 .foregroundStyle(.white.opacity(hovering ? 1 : 0.82))
                 .frame(minWidth: 46)
                 .padding(.horizontal, 9)
@@ -378,7 +378,7 @@ private struct KeyCapRow: View {
                 .shadow(color: .black.opacity(0.4), radius: hovering ? 8 : 3, y: 2)
 
             Text(action.title)
-                .font(.system(size: 12))
+                .font(AppFonts.jbMono(size: 12))
                 .foregroundStyle(.white.opacity(hovering ? 0.85 : 0.5))
                 .lineLimit(1)
             Spacer(minLength: 0)
@@ -410,7 +410,7 @@ struct PermissionCard: View {
             statusBadge
 
             Text(model.trusted ? L10n.text("welcome.permission.granted") : L10n.text("welcome.permission.needed"))
-                .font(.system(size: 17, weight: .semibold))
+                .font(AppFonts.jbMono(size: 17, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.94))
 
             if !model.trusted {
@@ -418,11 +418,11 @@ struct PermissionCard: View {
                     model.requestPermission()
                 }
                 Text(L10n.text("welcome.permission.autoContinue"))
-                    .font(.system(size: 11.5))
+                    .font(AppFonts.jbMono(size: 11.5))
                     .foregroundStyle(.white.opacity(0.42))
             } else {
                 Label(L10n.text("welcome.permission.menuBar"), systemImage: "menubar.arrow.up.rectangle")
-                    .font(.system(size: 12))
+                    .font(AppFonts.jbMono(size: 12))
                     .foregroundStyle(.white.opacity(0.55))
             }
         }
@@ -468,7 +468,7 @@ struct PermissionCard: View {
                 .fill(accent.opacity(0.2))
                 .frame(width: 48, height: 48)
             Image(systemName: model.trusted ? "checkmark" : "lock.open")
-                .font(.system(size: 19, weight: .semibold))
+                .font(AppFonts.jbMono(size: 19, weight: .semibold))
                 .foregroundStyle(accent)
         }
         .onAppear {
@@ -493,12 +493,12 @@ struct ChapterCopy: View {
         VStack(spacing: 12) {
             if !chapter.title.isEmpty {
                 Text(chapter.title)
-                    .font(.system(size: 22, weight: .semibold))
+                    .font(AppFonts.jbMono(size: 22, weight: .semibold))
                     .foregroundStyle(.white.opacity(0.95))
             }
             if !chapter.body.isEmpty {
                 Text(chapter.body)
-                    .font(.system(size: 13))
+                    .font(AppFonts.jbMono(size: 13))
                     .lineSpacing(5)
                     .multilineTextAlignment(.center)
                     .foregroundStyle(.white.opacity(0.52))
@@ -535,7 +535,7 @@ struct ChapterCopy: View {
         case .ring:
             HStack(spacing: 10) {
                 Text(L10n.text("welcome.controls.focusRing"))
-                    .font(.system(size: 12.5))
+                    .font(AppFonts.jbMono(size: 12.5))
                     .foregroundStyle(.white.opacity(0.6))
                 GlowSwitch(isOn: model.ringOn) { model.toggleRing() }
             }
@@ -570,7 +570,7 @@ private struct PresetChip: View {
     var body: some View {
         Button(action: action) {
             Text(label)
-                .font(.system(size: 12, weight: active ? .semibold : .medium, design: .rounded))
+                .font(AppFonts.jbMono(size: 12, weight: active ? .semibold : .medium))
                 .foregroundStyle(active ? .white : .white.opacity(hovering ? 0.85 : 0.55))
                 .padding(.horizontal, 14)
                 .padding(.vertical, 6)
@@ -625,10 +625,10 @@ private struct HintLine: View {
         HStack(spacing: 5) {
             if satisfied {
                 Image(systemName: "checkmark")
-                    .font(.system(size: 9, weight: .bold))
+                    .font(AppFonts.jbMono(size: 9, weight: .bold))
             }
             Text(text)
-                .font(.system(size: 11.5))
+                .font(AppFonts.jbMono(size: 11.5))
         }
         .foregroundStyle(.white.opacity(satisfied ? 0.3 : (breathing ? 0.66 : 0.34)))
         .onAppear {

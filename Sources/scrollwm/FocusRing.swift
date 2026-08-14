@@ -19,6 +19,8 @@ final class FocusRingController {
     private var currentCornerRadius: CGFloat = 10
     private var attachedScreenID: CGDirectDisplayID?
     private var foregroundGuard: Timer?
+    private var frontmostMismatchTicks = 0
+    private var frontmostGraceUntil: CFTimeInterval = 0
 
     init() {
         ringView = FocusRingView(frame: .zero)
@@ -35,9 +37,9 @@ final class FocusRingController {
         panel.ignoresMouseEvents = true
         panel.hidesOnDeactivate = false
         panel.sharingType = .none
-        // 与目标窗口同级，再用 relativeTo 排到它正上方。不能用 .floating，
-        // 否则 Finder 保存框、浏览器弹窗会被焦点边框穿透覆盖。
-        panel.level = .normal
+        // 比普通窗口高一级：点击提窗不会把亮边盖住，也就不必再 order 回去（那一下就是闪）。
+        // 仍低于 .floating / 菜单 / 保存框，那些弹层会从透明区域透出来，或走 hide。
+        panel.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.normalWindow)) + 1)
         // transient 会在 Mission Control / Exposé 自动隐藏；stationary 会固定在桌面原位，
         // 造成窗口缩略图移动后留下贯穿屏幕的独立紫线。
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient, .ignoresCycle]
@@ -47,21 +49,34 @@ final class FocusRingController {
         panel.maxSize = NSSize(width: 20000, height: 20000)
 
         foregroundGuard = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
-            guard let self, self.panel.isVisible else { return }
-            if !self.alwaysOn {
-                guard let pid = self.currentPID,
-                      NSWorkspace.shared.frontmostApplication?.processIdentifier == pid
-                else {
-                    self.hide()
-                    return
-                }
+            guard let self, self.panel.isVisible else {
+                self?.frontmostMismatchTicks = 0
+                return
             }
-            // 点击已聚焦窗口时系统会把它重新抬到普通层最顶、盖住同级边框面板，
-            // 而且这种点击不会产生任何 AX 焦点通知；定时把面板重新排到目标窗口之上。
-            if let id = self.currentWindowID {
-                self.panel.order(.above, relativeTo: Int(id))
+            if self.alwaysOn { return }
+            if CACurrentMediaTime() < self.frontmostGraceUntil {
+                self.frontmostMismatchTicks = 0
+                return
+            }
+            let pid = self.currentPID
+            let front = NSWorkspace.shared.frontmostApplication?.processIdentifier
+            if let pid, front == pid {
+                self.frontmostMismatchTicks = 0
+                return
+            }
+            // activate 完成前 frontmost 会对不上；连续对不上才藏，避免切窗口抽一帧。
+            self.frontmostMismatchTicks += 1
+            if self.frontmostMismatchTicks >= 3 {
+                self.frontmostMismatchTicks = 0
+                self.hide()
             }
         }
+    }
+
+    /// 键盘/点击切焦点后，忽略短暂的 frontmost 滞后。
+    func beginFrontmostGrace(_ seconds: TimeInterval = 0.45) {
+        frontmostGraceUntil = CACurrentMediaTime() + seconds
+        frontmostMismatchTicks = 0
     }
 
     func configure(enabled: Bool, width: CGFloat, glowRadius: CGFloat, alwaysOn: Bool = false) {
@@ -77,29 +92,39 @@ final class FocusRingController {
 
     /// `axFrame` 必须是 Accessibility / 布局空间（主屏顶左、点）。
     func show(windowID: CGWindowID, pid: pid_t, axFrame: CGRect, reorder: Bool = false) {
+        _ = reorder
         let radius = WindowChrome.cornerRadius(for: windowID)
-        show(windowID: windowID, pid: pid, axFrame: axFrame, cornerRadius: radius, reorder: reorder)
+        show(windowID: windowID, pid: pid, axFrame: axFrame, cornerRadius: radius)
     }
 
     private func show(
         windowID: CGWindowID,
         pid: pid_t,
         axFrame: CGRect,
-        cornerRadius: CGFloat,
-        reorder: Bool = false
+        cornerRadius: CGFloat
     ) {
+        let alreadyShowing = panel.isVisible && currentWindowID == windowID
         let targetChanged = currentWindowID != windowID
+        let frameUnchanged = currentAXFrame.map { rectsClose($0, axFrame) } ?? false
+        let radiusUnchanged = abs(currentCornerRadius - cornerRadius) < 0.5
         currentWindowID = windowID
         currentPID = pid
         currentAXFrame = axFrame
         currentCornerRadius = cornerRadius
-        guard enabled,
-              (alwaysOn || NSWorkspace.shared.frontmostApplication?.processIdentifier == pid),
-              axFrame.width > 1, axFrame.height > 1,
-              let screen = ScreenGeometry.screen(containingWindowID: windowID)
+        guard enabled, axFrame.width > 1, axFrame.height > 1 else {
+            if !alreadyShowing { hidePanelOnly() }
+            return
+        }
+        if !alwaysOn,
+           NSWorkspace.shared.frontmostApplication?.processIdentifier != pid,
+           CACurrentMediaTime() >= frontmostGraceUntil,
+           !panel.isVisible {
+            return
+        }
+        guard let screen = ScreenGeometry.screen(containingWindowID: windowID)
                 ?? ScreenGeometry.screen(containingAX: axFrame)
         else {
-            hidePanelOnly()
+            if !alreadyShowing { hidePanelOnly() }
             return
         }
 
@@ -107,7 +132,7 @@ final class FocusRingController {
         let screenFrame = screen.frame
         let local = cocoa.offsetBy(dx: -screenFrame.minX, dy: -screenFrame.minY)
         guard local.width > 1, local.height > 1 else {
-            hidePanelOnly()
+            if !alreadyShowing { hidePanelOnly() }
             return
         }
 
@@ -115,9 +140,14 @@ final class FocusRingController {
         let screenChanged = attachedScreenID != displayID
         attachedScreenID = displayID
 
+        if panel.isVisible, !targetChanged, !screenChanged, frameUnchanged, radiusUnchanged {
+            return
+        }
+
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        if screenChanged || abs(panel.frame.minX - screenFrame.minX) > 0.5
+        if !panel.isVisible || screenChanged
+            || abs(panel.frame.minX - screenFrame.minX) > 0.5
             || abs(panel.frame.minY - screenFrame.minY) > 0.5
             || abs(panel.frame.width - screenFrame.width) > 0.5
             || abs(panel.frame.height - screenFrame.height) > 0.5
@@ -128,23 +158,15 @@ final class FocusRingController {
         ringView.setWindowRect(local, cornerRadius: cornerRadius)
         CATransaction.commit()
 
-        if !panel.isVisible || targetChanged || reorder || screenChanged {
+        if !panel.isVisible {
             panel.alphaValue = 1
-            if !panel.isVisible || targetChanged || screenChanged {
-                panel.order(.above, relativeTo: Int(windowID))
-                panel.setFrame(screenFrame, display: true)
-                ringView.setWindowRect(local, cornerRadius: cornerRadius)
-            } else {
-                // 内容已是最新，只是层级被点击提窗盖住：仅重排，不重绘，避免连续点击闪烁
-                panel.order(.above, relativeTo: Int(windowID))
-            }
+            panel.orderFrontRegardless()
         }
     }
 
-    /// 面板被目标窗口点击提窗盖住时：仅重排层级，不触碰图层。
-    func reorderAbove(_ windowID: CGWindowID) {
-        guard panel.isVisible, currentWindowID == windowID else { return }
-        panel.order(.above, relativeTo: Int(windowID))
+    private func rectsClose(_ a: CGRect, _ b: CGRect) -> Bool {
+        abs(a.minX - b.minX) < 0.5 && abs(a.minY - b.minY) < 0.5
+            && abs(a.width - b.width) < 0.5 && abs(a.height - b.height) < 0.5
     }
 
     func hide() {
@@ -153,6 +175,7 @@ final class FocusRingController {
         currentAXFrame = nil
         currentCornerRadius = 10
         attachedScreenID = nil
+        frontmostMismatchTicks = 0
         hidePanelOnly()
     }
 
@@ -244,6 +267,13 @@ private final class FocusRingView: NSView {
     }
 
     func setWindowRect(_ rect: CGRect, cornerRadius: CGFloat) {
+        if abs(windowRect.minX - rect.minX) < 0.5,
+           abs(windowRect.minY - rect.minY) < 0.5,
+           abs(windowRect.width - rect.width) < 0.5,
+           abs(windowRect.height - rect.height) < 0.5,
+           abs(self.cornerRadius - cornerRadius) < 0.5 {
+            return
+        }
         windowRect = rect
         self.cornerRadius = cornerRadius
         updateLayers()
