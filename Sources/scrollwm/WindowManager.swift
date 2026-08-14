@@ -1841,7 +1841,16 @@ final class WindowManager {
             retile()
         case .cycleWidth:
             strip.cycleFocusedWidth(presets: config.widthPresets, minFraction: 0.15)
-            retile()
+            if let nsScreen = layoutScreen() {
+                let screen = ScreenGeometry.axVisible(of: nsScreen)
+                let viewport = LayoutEngine.viewport(screen: screen, spec: spec)
+                strip.viewportOffset = LayoutEngine.centeredOffset(
+                    strip, viewportWidth: viewport.width, spec: spec
+                )
+                retile(reveal: false)
+            } else {
+                retile()
+            }
         case .growWidth:
             resizeTarget(by: config.resizeStep)
         case .shrinkWidth:

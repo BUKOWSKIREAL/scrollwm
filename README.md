@@ -75,7 +75,7 @@ Alt (Option) is the default mod key; everything is rebindable in the config:
 - `alt-h` / `alt-l`: same as above, Vim-style aliases; can be unbound in config
 - `alt-shift-h` / `alt-shift-l`: move the focused column left / right
 - **⌘ + drag a window** (niri's Mod+drag): hold ⌘ and drag a tiled window; on release it reorders to the drop position. Dragging without ⌘ still snaps back to the strip and absorbs width changes
-- `alt-r`: cycle width presets (1/3 → 1/2 → 2/3 → wrap)
+- `alt-r`: cycle width presets (1/3 → 1/2 → 2/3 → wrap), centered — neighbors peek an edge on each side at every step
 - `alt-minus` / `alt-equal`: continuously narrow / widen (step `resize_step`); floating windows scale by about `2 × resize_step` around their center
 - `alt-f`: toggle full-width column (press again to restore)
 - `alt-c`: center the focused column in the viewport
@@ -164,7 +164,7 @@ After building, walk through this (TextEdit / Terminal / browser with 5+ windows
 2. New windows open beside the focused column (left or right, in Settings), gain focus, and the viewport scrolls to reveal them
 3. `alt-left/right` (or `alt-h/l`) moves focus along the strip; crossing the viewport boundary triggers minimal scrolling; clicking or Cmd-Tabbing to a docked column scrolls too
 4. `alt-shift-h/l` moves columns, focus follows
-5. `alt-r` cycles widths; `alt-minus/equal` continuously resizes; `alt-f` full-width roundtrip; `alt-c` centers
+5. `alt-r` cycles widths (centered); `alt-minus/equal` continuously resizes; `alt-f` full-width roundtrip; `alt-c` centers
 6. Closing a window (`alt-q` or the red button): column removed, focus moves to the right neighbor
 7. Dragging snaps back on release; manually widening a window → width absorbed as column width
 8. Popup dialogs (e.g. save panels) are not managed

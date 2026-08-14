@@ -1,4 +1,5 @@
 import Carbon.HIToolbox
+import CoreGraphics
 import Foundation
 
 /// Carbon 全局热键管理。
@@ -12,6 +13,13 @@ final class HotkeyManager {
     private var nextID: UInt32 = 1
     private var handlerInstalled = false
     private let dispatch: (WMAction) -> Void
+
+    // 长按重复：可重复动作（加宽/减窄）按住时自动连发，模拟键盘 repeat。
+    private static let repeatableActions: Set<WMAction> = [.growWidth, .shrinkWidth]
+    private var keyInfoByID: [UInt32: UInt32] = [:] // id -> keyCode
+    private var repeatTimer: Timer?
+    private var repeatAction: WMAction?
+    private var repeatKeyCode: UInt32?
 
     private static let signature: OSType = {
         // "SCRL" 四字符码
@@ -49,6 +57,7 @@ final class HotkeyManager {
             }
             hotkeyRefs.append(ref)
             actionsByID[nextID] = action
+            keyInfoByID[nextID] = keyCode
             nextID += 1
         }
         Log.info("热键注册完成：\(actionsByID.count) 个")
@@ -61,12 +70,53 @@ final class HotkeyManager {
         }
         hotkeyRefs.removeAll()
         actionsByID.removeAll()
+        keyInfoByID.removeAll()
+        stopRepeating()
     }
 
     fileprivate func handle(id: UInt32) {
         guard let action = actionsByID[id] else { return }
         Log.debug("热键触发：\(action.rawValue)")
         dispatch(action)
+        if Self.repeatableActions.contains(action), let code = keyInfoByID[id] {
+            startRepeating(action: action, keyCode: code)
+        } else {
+            stopRepeating()
+        }
+    }
+
+    // MARK: - 长按重复
+
+    private func startRepeating(action: WMAction, keyCode: UInt32) {
+        stopRepeating()
+        repeatAction = action
+        repeatKeyCode = keyCode
+        let t = Timer.scheduledTimer(withTimeInterval: 0.22, repeats: false) { [weak self] _ in
+            self?.repeatTick()
+        }
+        RunLoop.main.add(t, forMode: .common)
+        repeatTimer = t
+    }
+
+    private func repeatTick() {
+        guard let action = repeatAction, let code = repeatKeyCode else { return }
+        guard CGEventSource.keyState(.combinedSessionState, key: CGKeyCode(code)) else {
+            stopRepeating()
+            return
+        }
+        dispatch(action)
+        let t = Timer.scheduledTimer(withTimeInterval: 0.04, repeats: false) { [weak self] _ in
+            self?.repeatTick()
+        }
+        RunLoop.main.add(t, forMode: .common)
+        repeatTimer = t
+    }
+
+    private func stopRepeating() {
+        repeatTimer?.invalidate()
+        repeatTimer = nil
+        repeatAction = nil
+        repeatKeyCode = nil
     }
 
     private func installHandlerIfNeeded() {
