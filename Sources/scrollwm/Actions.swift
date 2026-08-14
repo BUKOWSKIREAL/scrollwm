@@ -9,8 +9,6 @@ enum WMAction: String, CaseIterable {
     case cycleWidth = "cycle-width"
     case growWidth = "grow-width"
     case shrinkWidth = "shrink-width"
-    case zoomIn = "zoom-in"
-    case zoomOut = "zoom-out"
     case toggleFullWidth = "toggle-full-width"
     case centerColumn = "center-column"
     case toggleFloat = "toggle-float"
@@ -31,8 +29,6 @@ extension WMAction {
         case .cycleWidth: return "循环宽度预设"
         case .growWidth: return "加宽"
         case .shrinkWidth: return "减窄"
-        case .zoomIn: return "放大窗口"
-        case .zoomOut: return "缩小窗口"
         case .toggleFullWidth: return "切换全宽"
         case .centerColumn: return "居中所选列"
         case .toggleFloat: return "切换浮动"
@@ -42,15 +38,9 @@ extension WMAction {
         }
     }
 
-    /// 默认键位里绑到本动作的第一个组合键，供引导页展示
+    /// 默认键位里绑到本动作的第一个组合键，供设置页与引导页展示
     var defaultCombo: String? {
         Config.defaultBindingPairs.first { $0.action == self }?.combo
-    }
-
-    /// 引导页优先展示 ⌘ 组合（放大缩小是 ⌘+/-），没有再退回第一个默认键
-    var showcaseCombo: String? {
-        let pairs = Config.defaultBindingPairs.filter { $0.action == self }
-        return pairs.first { $0.combo.hasPrefix("cmd-") }?.combo ?? pairs.first?.combo
     }
 }
 

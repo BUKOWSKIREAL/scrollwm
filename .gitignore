@@ -3,3 +3,6 @@
 *.xcodeproj
 DerivedData/
 dist/
+
+# 本地工具目录
+.qoder/

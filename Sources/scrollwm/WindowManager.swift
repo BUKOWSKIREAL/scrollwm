@@ -129,6 +129,7 @@ final class WindowManager {
     private func configureAnimator(from config: Config) {
         animator.mode = config.animationMode
         animator.curve = config.animationCurve
+        animator.highFrameRate = config.animationHighFrameRate
         animator.springParameters = SpringParameters(
             dampingRatio: config.springDampingRatio,
             stiffness: config.springStiffness,
@@ -1845,10 +1846,6 @@ final class WindowManager {
             resizeTarget(by: config.resizeStep)
         case .shrinkWidth:
             resizeTarget(by: -config.resizeStep)
-        case .zoomIn:
-            zoomTarget(expanding: true)
-        case .zoomOut:
-            zoomTarget(expanding: false)
         case .toggleFullWidth:
             strip.toggleFocusedFullWidth(fallback: config.defaultWidth)
             retile()
@@ -1873,7 +1870,8 @@ final class WindowManager {
         }
     }
 
-    /// 放大缩小：焦点是浮动窗则围绕中心等比缩放；平铺窗则调列宽
+    /// 调宽：焦点是浮动窗则围绕中心等比缩放；平铺窗则调列宽。
+    /// 浏览器等 App 对 AX 改尺寸有延迟，不能把中间帧吸回列宽，否则每次看起来只动几像素。
     private func resizeTarget(by delta: Double) {
         focusResizeTarget()
         if let target = lastFocusedID, floating.contains(target) {
@@ -1883,12 +1881,6 @@ final class WindowManager {
             retile()
             refreshFocusRing()
         }
-    }
-
-    /// ⌘+/- 与 ⌥+/- 共用设置里的调宽步长。浏览器等 App 对 AX 改尺寸有延迟，
-    /// 不能把中间帧吸回列宽，否则每次看起来只动几像素。
-    private func zoomTarget(expanding: Bool) {
-        resizeTarget(by: expanding ? config.resizeStep : -config.resizeStep)
     }
 
     /// 快捷键应对准用户正在看的窗口，而不是纸带上可能已经过期的焦点列

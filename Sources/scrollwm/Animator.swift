@@ -64,11 +64,16 @@ final class FrameAnimator {
     var mode: AnimationMode = .spring
     var curve: Interpolation.Curve = .default
     var springParameters: SpringParameters = .niriDefault
+    /// 实验性：锁定到所在屏最大刷新率（ProMotion 上系统平时会压到 60Hz 省电）。
+    var highFrameRate = false {
+        didSet { applyFrameRateRange() }
+    }
     private(set) var isLayoutAnimating = false
     private var layoutDuration: TimeInterval = 0
 
     private var displayLink: CADisplayLink?
     private var linkedDisplayID: CGDirectDisplayID?
+    private var linkedMaxFPS: Float = 60
     private let linkTarget = DisplayLinkProxy()
     private var startTime: CFTimeInterval = 0
     private var transitions: [ActiveTransition] = []
@@ -320,13 +325,23 @@ final class FrameAnimator {
             linkedDisplayID = nil
         }
         let fps = max(30, screen?.maximumFramesPerSecond ?? 60)
-        link.preferredFrameRateRange = CAFrameRateRange(
-            minimum: 30,
-            maximum: Float(fps),
-            preferred: Float(fps)
-        )
+        linkedMaxFPS = Float(fps)
+        link.preferredFrameRateRange = frameRateRange()
         link.add(to: .main, forMode: .common)
         displayLink = link
+    }
+
+    private func frameRateRange() -> CAFrameRateRange {
+        CAFrameRateRange(
+            minimum: highFrameRate ? linkedMaxFPS : 30,
+            maximum: linkedMaxFPS,
+            preferred: linkedMaxFPS
+        )
+    }
+
+    /// 配置热更新时，运行中的 DisplayLink 也要跟着换帧率档。
+    private func applyFrameRateRange() {
+        displayLink?.preferredFrameRateRange = frameRateRange()
     }
 
     private func stopDisplayLink() {

@@ -332,7 +332,7 @@ struct KeyCapGrid: View {
     private static let featured: [WMAction] = [
         .focusLeft, .focusRight, .cycleWidth,
         .moveLeft, .moveRight, .toggleFullWidth,
-        .zoomIn, .zoomOut, .toggleFloat,
+        .growWidth, .shrinkWidth, .toggleFloat,
         .centerColumn, .closeWindow, .retile,
     ]
 
@@ -351,13 +351,12 @@ struct KeyCapGrid: View {
 private struct KeyCapRow: View {
     let action: WMAction
     let index: Int
-    @EnvironmentObject var model: WelcomeModel
     @State private var hovering = false
     @State private var appeared = false
 
     var body: some View {
         HStack(spacing: 10) {
-            Text(action.showcaseCombo.map(KeyComboText.display) ?? "—")
+            Text(action.defaultCombo.map(KeyComboText.display) ?? "—")
                 .font(.system(size: 13, weight: .semibold, design: .rounded))
                 .foregroundStyle(.white.opacity(hovering ? 1 : 0.82))
                 .frame(minWidth: 46)
@@ -389,7 +388,6 @@ private struct KeyCapRow: View {
         .offset(y: appeared ? 0 : 12)
         .onHover { inside in
             hovering = inside
-            if inside { model.noteHover() }
         }
         .animation(.spring(response: 0.28, dampingFraction: 0.7), value: hovering)
         .onAppear {

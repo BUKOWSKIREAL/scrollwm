@@ -5,14 +5,12 @@ import SwiftUI
 // ============================================================
 //  首次运行的交互式引导。
 //  纸带演示直接跑 ScrollCore 的 LayoutEngine，屏幕上看到的就是真实布局行为。
-//  配乐由 OnboardingAudio 实时合成，不打包音频资源。
 // ============================================================
 
 // MARK: - 持久状态
 
 enum WelcomeState {
     private static let versionKey = "scrollwm.welcome.version"
-    private static let soundKey = "scrollwm.welcome.sound"
     /// 引导内容有实质更新时 +1，老用户会再看到一次
     static let currentVersion = 1
 
@@ -22,11 +20,6 @@ enum WelcomeState {
 
     static func markSeen() {
         UserDefaults.standard.set(currentVersion, forKey: versionKey)
-    }
-
-    static var soundEnabled: Bool {
-        get { UserDefaults.standard.object(forKey: soundKey) as? Bool ?? true }
-        set { UserDefaults.standard.set(newValue, forKey: soundKey) }
     }
 }
 
@@ -126,17 +119,6 @@ final class WelcomeModel: ObservableObject {
     @Published private(set) var trusted = AXIsProcessTrusted()
     @Published var ringOn = true
 
-    @Published var soundOn: Bool = WelcomeState.soundEnabled {
-        didSet {
-            guard soundOn != oldValue else { return }
-            WelcomeState.soundEnabled = soundOn
-            audio.isMuted = !soundOn
-            if soundOn { audio.tick() }
-        }
-    }
-
-    let audio = OnboardingAudio()
-
     var onFinish: (() -> Void)?
     var onRequestPermission: (() -> Void)?
     /// 用户在系统设置里勾选完权限后，把引导窗口重新叫到前面
@@ -175,8 +157,6 @@ final class WelcomeModel: ObservableObject {
     // MARK: 生命周期
 
     func begin() {
-        audio.isMuted = !soundOn
-        audio.start()
         permissionTimer?.invalidate()
         permissionTimer = Timer.scheduledTimer(withTimeInterval: 0.6, repeats: true) { [weak self] _ in
             guard let self else { return }
@@ -184,7 +164,6 @@ final class WelcomeModel: ObservableObject {
             guard now != self.trusted else { return }
             self.trusted = now
             if now {
-                self.audio.success()
                 self.onPermissionGranted?()
             }
         }
@@ -193,7 +172,6 @@ final class WelcomeModel: ObservableObject {
     func end() {
         permissionTimer?.invalidate()
         permissionTimer = nil
-        audio.stop()
     }
 
     // MARK: 导航
@@ -204,7 +182,6 @@ final class WelcomeModel: ObservableObject {
             chapter = target
         }
         Log.debug("引导章节：\(target.rawValue)")
-        audio.chime(step: target.rawValue)
     }
 
     func advance() {
@@ -225,12 +202,10 @@ final class WelcomeModel: ObservableObject {
     }
 
     private func finish() {
-        audio.finale()
         onFinish?()
     }
 
     func requestPermission() {
-        audio.tick()
         onRequestPermission?()
     }
 
@@ -238,49 +213,38 @@ final class WelcomeModel: ObservableObject {
 
     func focusNeighbor(_ direction: HDirection) {
         guard demo.focusAdjacent(direction) != nil else { return }
-        audio.tick()
         markExplored()
     }
 
     func focus(id: WindowID) {
         guard demo.focusedID != id, demo.focus(id: id) else { return }
-        audio.tick()
         markExplored()
     }
 
     func nudgeWidth(by delta: Double) {
         demo.adjustFocusedWidth(by: delta, minFraction: Self.spec.minFraction)
-        audio.tick()
         markExplored()
     }
 
     func cycleWidthPreset() {
         demo.cycleFocusedWidth(presets: Self.spec.widthPresets, minFraction: Self.spec.minFraction)
-        audio.tick()
         markExplored()
     }
 
     func setFocusedWidth(_ fraction: Double) {
         guard let id = demo.focusedID else { return }
         demo.setFraction(id: id, fraction: fraction, minFraction: Self.spec.minFraction)
-        audio.tick()
         markExplored()
     }
 
     func toggleFullWidth() {
         demo.toggleFocusedFullWidth(fallback: Self.spec.defaultWidth)
-        audio.tick()
         markExplored()
     }
 
     func toggleRing() {
         ringOn.toggle()
-        audio.tick()
         markExplored()
-    }
-
-    func noteHover() {
-        audio.tick()
     }
 
     private func markExplored() {
@@ -452,7 +416,7 @@ final class WelcomeWindowController: NSObject, NSWindowDelegate {
             onDismiss?()
             return
         }
-        // 收尾和弦还在响，窗口跟着一起淡出
+        // 窗口淡出后再退场
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.42
             context.timingFunction = CAMediaTimingFunction(name: .easeIn)
@@ -519,7 +483,6 @@ struct WelcomeRootView: View {
         HStack(spacing: 14) {
             ChapterProgress()
             Spacer(minLength: 8)
-            SoundToggle()
             GlyphButton(symbol: "xmark") { model.skip() }
                 .help("跳过（Esc）")
         }
@@ -546,7 +509,7 @@ struct WelcomeRootView: View {
         .frame(height: 274, alignment: .top)
         .clipped()
         .padding(.horizontal, 54)
-        .padding(.top, 18)
+        .padding(.top, 34)
     }
 
     // MARK: 文案与本章控件
@@ -597,14 +560,26 @@ struct WelcomeRootView: View {
 // MARK: - 背景
 
 /// 近黑底 + 两团随章节换色、极慢漂移的光晕。刷新率压到 24fps，肉眼看不出、也不烧电。
+/// 光晕用 overlay 叠加：尺寸跟宿主走，超大的光晕 frame 不会把根布局撑歪。
 private struct WelcomeBackdrop: View {
     let accent: Color
 
     var body: some View {
+        WelcomePalette.ink
+            .overlay(glowLayer)
+            .overlay(
+                // 边缘压暗，视线自然收到中间
+                RadialGradient(
+                    colors: [.clear, .black.opacity(0.55)],
+                    center: .center, startRadius: 240, endRadius: 620
+                )
+            )
+    }
+
+    private var glowLayer: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 24.0)) { context in
             let t = context.date.timeIntervalSinceReferenceDate
             ZStack {
-                WelcomePalette.ink
                 glow(color: accent, radius: 460)
                     .offset(x: CGFloat(sin(t * 0.06)) * 150 - 190, y: CGFloat(cos(t * 0.045)) * 80 - 120)
                 glow(color: WelcomePalette.violet, radius: 380)
@@ -612,13 +587,6 @@ private struct WelcomeBackdrop: View {
             }
             .animation(.easeInOut(duration: 0.9), value: accent)
         }
-        .overlay(
-            // 边缘压暗，视线自然收到中间
-            RadialGradient(
-                colors: [.clear, .black.opacity(0.55)],
-                center: .center, startRadius: 240, endRadius: 620
-            )
-        )
     }
 
     private func glow(color: Color, radius: CGFloat) -> some View {
@@ -683,34 +651,6 @@ struct WelcomeKeycap: View {
                 RoundedRectangle(cornerRadius: 7, style: .continuous)
                     .strokeBorder(.white.opacity(0.16), lineWidth: 0.7)
             )
-    }
-}
-
-private struct SoundToggle: View {
-    @EnvironmentObject var model: WelcomeModel
-    @State private var hovering = false
-
-    var body: some View {
-        Button {
-            model.soundOn.toggle()
-        } label: {
-            HStack(spacing: 6) {
-                Image(systemName: model.soundOn ? "speaker.wave.2.fill" : "speaker.slash.fill")
-                    .font(.system(size: 11, weight: .semibold))
-                    .frame(width: 14)
-                Text(model.soundOn ? "关闭配乐" : "打开配乐")
-                    .font(.system(size: 11.5, weight: .medium))
-            }
-            .foregroundStyle(.white.opacity(hovering ? 0.95 : 0.58))
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(Capsule().fill(.white.opacity(hovering ? 0.12 : 0.05)))
-        }
-        .buttonStyle(.plain)
-        .help(model.soundOn ? "关闭配乐" : "打开配乐")
-        .onHover { hovering = $0 }
-        .animation(.easeOut(duration: 0.15), value: hovering)
-        .animation(.easeOut(duration: 0.15), value: model.soundOn)
     }
 }
 

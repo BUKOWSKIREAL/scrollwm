@@ -461,6 +461,11 @@ private struct GeneralTab: View {
                 .pickerStyle(.segmented)
                 .frame(maxWidth: 240)
 
+                Toggle("高帧率（实验性）", isOn: model.binding(\.animationHighFrameRate))
+                    .disabled(!model.config.animationEnabled)
+                Text("把动画帧率锁定为屏幕最大刷新率（如 120Hz），窗口移动更流畅，但可能明显增加电量消耗。")
+                    .font(.caption).foregroundStyle(.secondary)
+
                 DisclosureGroup("高级参数", isExpanded: $showAdvanced) {
                     if model.config.animationMode == .spring {
                         NumberSlider(title: "刚度", range: 1...5000, step: 10,

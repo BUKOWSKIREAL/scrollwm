@@ -81,9 +81,7 @@ Alt(Option) 为默认 Mod 键，全部可在配置中改：
 - `alt-shift-h` / `alt-shift-l`：焦点列向左 / 右挪位
 - **Command + 拖动窗口**（niri Super+拖动）：按住 ⌘ 拖动平铺窗口，松手后按落点重排列序；不按 ⌘ 的拖动仍会回弹到纸带并吸收宽度
 - `alt-r`：循环宽度预设（1/3 → 1/2 → 2/3 → 回绕）
-- `alt-minus` / `alt-equal`：连续缩窄 / 加宽（步长 `resize_step`）
-- `cmd-minus` / `cmd-equal`（⌘-/⌘+）：窗口放大缩小——
-  平铺列每按一次改变 `resize_step`（占视口宽度的比例）；浮动窗口围绕中心缩放约 `2 × resize_step`
+- `alt-minus` / `alt-equal`：连续缩窄 / 加宽（步长 `resize_step`）；浮动窗口围绕中心缩放约 `2 × resize_step`
 - `alt-f`：列全宽开关（再按恢复原宽）
 - `alt-c`：焦点列在视口居中
 - `alt-t`：浮动豁免开关（浮出/收回纸带）
@@ -146,7 +144,7 @@ ignore = []         # 不接管的 bundle id，如 ["com.apple.systempreferences
 "alt-w" = "cycle-width"      # 示例：增加一个自定义键位
 "alt-q" = "none"             # 示例：解绑默认的关窗键
 # 动作名：focus-left/right, move-left/right, cycle-width, grow-width,
-# shrink-width, zoom-in/out, toggle-full-width, center-column, toggle-float,
+# shrink-width, toggle-full-width, center-column, toggle-float,
 # close-window, retile, none
 # 键名补充：equal 即加号键（plus 为其别名），kpplus/kpminus 为数字小键盘加减
 ```

@@ -16,12 +16,18 @@ cp "$BIN" "$APP/Contents/MacOS/scrollwm"
 cp Support/Info.plist "$APP/Contents/Info.plist"
 printf 'APPL????' > "$APP/Contents/PkgInfo"
 
-# 有 Liquid Glass 源图或 icns 缺失时生成图标（需要 python3 + PIL；失败不阻断打包）
-if [ -f Support/icon-source.png ] || [ ! -f Support/AppIcon.icns ]; then
-  python3 scripts/gen-icon.py || echo "图标生成失败，App 将使用系统默认图标"
+# 图标缺失时生成（需要 python3 + PIL；失败不阻断打包）
+if [ ! -f Support/Assets.car ] || [ ! -f Support/AppIcon.icns ]; then
+  python3 scripts/gen-icon.py || echo "图标生成失败，App 将使用现有/默认图标"
 fi
 if [ -f Support/AppIcon.icns ]; then
   cp Support/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
+fi
+# 深色外观图标变体（Asset Catalog；icns 不支持深色）
+if [ -f Support/Assets.car ]; then
+  cp Support/Assets.car "$APP/Contents/Resources/Assets.car"
+  # 同时存在 icns 键时系统可能优先用无深色变体的 icns，摘掉让它走 Assets.car
+  /usr/libexec/PlistBuddy -c "Delete :CFBundleIconFile" "$APP/Contents/Info.plist" 2>/dev/null || true
 fi
 
 # 合成器 payload（可选）：存在则一并打进 App，供 --load-sa 注入 Dock

@@ -76,8 +76,7 @@ Alt (Option) is the default mod key; everything is rebindable in the config:
 - `alt-shift-h` / `alt-shift-l`: move the focused column left / right
 - **⌘ + drag a window** (niri's Mod+drag): hold ⌘ and drag a tiled window; on release it reorders to the drop position. Dragging without ⌘ still snaps back to the strip and absorbs width changes
 - `alt-r`: cycle width presets (1/3 → 1/2 → 2/3 → wrap)
-- `alt-minus` / `alt-equal`: continuously narrow / widen (step `resize_step`)
-- `cmd-minus` / `cmd-equal` (⌘-/⌘+): zoom windows — tiled columns change by `resize_step` of the viewport per press; floating windows scale by about `2 × resize_step` around their center
+- `alt-minus` / `alt-equal`: continuously narrow / widen (step `resize_step`); floating windows scale by about `2 × resize_step` around their center
 - `alt-f`: toggle full-width column (press again to restore)
 - `alt-c`: center the focused column in the viewport
 - `alt-t`: toggle floating exemption (float out of / back into the strip)
@@ -140,7 +139,7 @@ ignore = []         # bundle IDs to leave alone, e.g. ["com.apple.systempreferen
 "alt-w" = "cycle-width"      # example: add a custom binding
 "alt-q" = "none"             # example: unbind the default close key
 # Actions: focus-left/right, move-left/right, cycle-width, grow-width,
-# shrink-width, zoom-in/out, toggle-full-width, center-column, toggle-float,
+# shrink-width, toggle-full-width, center-column, toggle-float,
 # close-window, retile, none
 # Key name notes: equal is the plus key (plus is an alias), kpplus/kpminus are the keypad +/- keys
 ```

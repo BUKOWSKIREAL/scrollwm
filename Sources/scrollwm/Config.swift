@@ -23,6 +23,8 @@ struct Config: Equatable {
     var newWindowSide: NewWindowSide = .right
     var animationEnabled: Bool = true
     var animationMode: AnimationMode = .spring
+    /// 实验性：动画期间把显示链路锁定在屏幕最大刷新率，更流畅但更耗电。
+    var animationHighFrameRate: Bool = false
     /// easing 兼容模式参数
     var animationDurationMs: Double = 240
     var animationCurve: Interpolation.Curve = .default
@@ -50,10 +52,6 @@ struct Config: Equatable {
         ("alt-r", .cycleWidth),
         ("alt-minus", .shrinkWidth),
         ("alt-equal", .growWidth),
-        // ⌘+/- 窗口放大缩小（+ 即 = 键，⌘⇧= 即 ⌘+）
-        ("cmd-equal", .zoomIn),
-        ("cmd-shift-equal", .zoomIn),
-        ("cmd-minus", .zoomOut),
         ("alt-f", .toggleFullWidth),
         ("alt-c", .centerColumn),
         ("alt-t", .toggleFloat),
@@ -146,6 +144,9 @@ struct Config: Equatable {
             if let enabled = animation["enabled"]?.tomlValue.bool {
                 config.animationEnabled = enabled
             }
+            if let v = animation["high_frame_rate"]?.tomlValue.bool {
+                config.animationHighFrameRate = v
+            }
             if let name = animation["mode"]?.tomlValue.string {
                 if let mode = AnimationMode(rawValue: name) {
                     config.animationMode = mode
@@ -235,21 +236,18 @@ struct Config: Equatable {
             config.bindings = bindings
         }
 
-        migrateZoomBindings(&config.bindings)
+        retireLegacyResizeBindings(&config.bindings)
 
         return (config, warnings)
     }
 
-    /// ⌘+/- 从「加宽/减窄」拆成独立的放大/缩小；旧配置里若仍写成 grow/shrink，迁过来。
-    /// 顺带清掉已废弃的 Ctrl+/- 默认别名，避免设置页叠一堆键帽。
-    private static func migrateZoomBindings(_ bindings: inout [String: WMAction]) {
-        for combo in ["cmd-equal", "cmd-shift-equal", "cmd-plus"] where bindings[combo] == .growWidth {
-            bindings[combo] = .zoomIn
-        }
-        for combo in ["cmd-minus"] where bindings[combo] == .shrinkWidth {
-            bindings[combo] = .zoomOut
-        }
+    /// zoom-in/out 与加宽/减窄重复，已合并移除；⌘/⌃ +/- 的旧绑定一并清掉，把 ⌘+/- 还给 App。
+    private static func retireLegacyResizeBindings(_ bindings: inout [String: WMAction]) {
         let retired: [(combo: String, action: WMAction)] = [
+            ("cmd-equal", .growWidth),
+            ("cmd-shift-equal", .growWidth),
+            ("cmd-plus", .growWidth),
+            ("cmd-minus", .shrinkWidth),
             ("ctrl-equal", .growWidth),
             ("ctrl-shift-equal", .growWidth),
             ("ctrl-kpplus", .growWidth),
@@ -257,8 +255,6 @@ struct Config: Equatable {
             ("ctrl-kpminus", .shrinkWidth),
             ("cmd-kpplus", .growWidth),
             ("cmd-kpminus", .shrinkWidth),
-            ("cmd-kpplus", .zoomIn),
-            ("cmd-kpminus", .zoomOut),
         ]
         for item in retired where bindings[item.combo] == item.action {
             bindings.removeValue(forKey: item.combo)
@@ -292,6 +288,7 @@ struct Config: Equatable {
         lines.append("epsilon = \(Self.toml(springEpsilon))")
         lines.append("duration_ms = \(Self.toml(animationDurationMs))   # mode = \"easing\" 时使用")
         lines.append("curve = \"\(animationCurve.rawValue)\"  # mode = \"easing\" 时使用")
+        lines.append("high_frame_rate = \(animationHighFrameRate)   # 实验性：动画锁定屏幕最大刷新率（如 120Hz），可能明显增加耗电")
         lines.append("")
         lines.append("[focus_ring]")
         lines.append("enabled = \(focusRingEnabled)")
@@ -402,7 +399,6 @@ struct Config: Equatable {
     # "alt-shift-h" = "move-left"     "alt-shift-l" = "move-right"
     # "alt-r" = "cycle-width"         "alt-f" = "toggle-full-width"
     # "alt-minus" = "shrink-width"    "alt-equal" = "grow-width"
-    # "cmd-minus" = "zoom-out"        "cmd-equal" = "zoom-in"     # ⌘+/- 放大缩小
     # "alt-c" = "center-column"       "alt-t" = "toggle-float"
     # "alt-q" = "close-window"        "alt-shift-r" = "retile"
     """
