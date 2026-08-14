@@ -30,6 +30,12 @@ if [ -f Support/Assets.car ]; then
   /usr/libexec/PlistBuddy -c "Delete :CFBundleIconFile" "$APP/Contents/Info.plist" 2>/dev/null || true
 fi
 
+# 本地化资源包（SwiftPM 生成的 scrollwm_scrollwm.bundle，含 zh-Hans/en 文案）
+RES_BUNDLE="$(swift build -c "$CONFIG" --show-bin-path)/scrollwm_scrollwm.bundle"
+if [ -d "$RES_BUNDLE" ]; then
+  cp -R "$RES_BUNDLE" "$APP/Contents/Resources/scrollwm_scrollwm.bundle"
+fi
+
 # 合成器 payload（可选）：存在则一并打进 App，供 --load-sa 注入 Dock
 if [ -d dist/ScrollWMSA.bundle ]; then
   cp -R dist/ScrollWMSA.bundle "$APP/Contents/Resources/ScrollWMSA.bundle"

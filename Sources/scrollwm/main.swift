@@ -49,6 +49,12 @@ if arguments.contains("--help") || arguments.contains("-h") {
     exit(0)
 }
 
+// 语言覆盖：在创建任何 UI 之前根据配置设置 AppleLanguages，
+// 让本次启动全程使用所选语言（system / en / zh-hans，设置里可改）。
+// Config.load() 在文件缺失时会写出默认模板，与 AppDelegate 后续行为一致。
+let (bootConfig, _) = Config.load()
+bootConfig.language.apply()
+
 let app = NSApplication.shared
 let delegate = AppDelegate()
 app.delegate = delegate

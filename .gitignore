@@ -6,3 +6,4 @@ dist/
 
 # 本地工具目录
 .qoder/
+.DS_Store

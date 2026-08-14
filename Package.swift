@@ -3,6 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "scrollwm",
+    defaultLocalization: "zh-Hans",
     platforms: [.macOS(.v14)],
     dependencies: [
         .package(url: "https://github.com/LebJe/TOMLKit.git", from: "0.5.0"),
@@ -18,7 +19,8 @@ let package = Package(
                 "ScrollCore",
                 "CClient",
                 .product(name: "TOMLKit", package: "TOMLKit"),
-            ]
+            ],
+            resources: [.process("Resources")]
         ),
         .testTarget(name: "ScrollCoreTests", dependencies: ["ScrollCore"]),
     ]

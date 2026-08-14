@@ -47,11 +47,11 @@ enum WelcomeChapter: Int, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .overture: return ""
-        case .strip: return "纸带，而不是网格"
-        case .width: return "宽度是可以商量的"
-        case .ring: return "焦点始终看得见"
-        case .keys: return "手不用离开键盘"
-        case .ready: return "最后一步"
+        case .strip: return L10n.text("welcome.strip.title")
+        case .width: return L10n.text("welcome.width.title")
+        case .ring: return L10n.text("welcome.ring.title")
+        case .keys: return L10n.text("welcome.keys.title")
+        case .ready: return L10n.text("welcome.ready.title")
         }
     }
 
@@ -60,25 +60,25 @@ enum WelcomeChapter: Int, CaseIterable, Identifiable {
         case .overture:
             return ""
         case .strip:
-            return "窗口一列一列向右排开，永远不会互相遮挡。焦点走到哪里，视口就跟到哪里；够不着的列停在屏幕边缘，只露出一道纸边。"
+            return L10n.text("welcome.strip.body")
         case .width:
-            return "每一列都有自己的宽度。在预设之间循环，或者一点一点调，直到刚好。"
+            return L10n.text("welcome.width.body")
         case .ring:
-            return "当前列外面有一圈渐变亮边，跟着窗口一起动。切到别的 App 时它会让路，也可以让它一直亮着。"
+            return L10n.text("welcome.ring.body")
         case .keys:
-            return "所有动作都能绑定快捷键，下面是默认的一套。想改的话，在设置里点「录入」，按一下新组合就行。"
+            return L10n.text("welcome.keys.body")
         case .ready:
-            return "ScrollWM 需要辅助功能权限才能移动别的 App 的窗口。授权之后它就住在菜单栏里，安静接管一切。"
+            return L10n.text("welcome.ready.body")
         }
     }
 
     var hint: String {
         switch self {
-        case .overture: return "按 Enter 开始"
-        case .strip: return "按 ⌥← / ⌥→ 移动焦点，或直接点一个窗口"
-        case .width: return "按 ⌥－ / ⌥＋ 微调，⌥R 切换预设"
-        case .ring: return "拨一下开关，看看两种效果"
-        case .keys: return "把鼠标放到键帽上"
+        case .overture: return L10n.text("welcome.overture.hint")
+        case .strip: return L10n.text("welcome.strip.hint")
+        case .width: return L10n.text("welcome.width.hint")
+        case .ring: return L10n.text("welcome.ring.hint")
+        case .keys: return L10n.text("welcome.keys.hint")
         case .ready: return ""
         }
     }
@@ -139,11 +139,11 @@ final class WelcomeModel: ObservableObject {
     )
 
     static let demoApps: [(id: WindowID, name: String, tint: Color)] = [
-        (1, "编辑器", Color(red: 0.36, green: 0.55, blue: 0.95)),
-        (2, "终端", Color(red: 0.34, green: 0.74, blue: 0.62)),
-        (3, "浏览器", Color(red: 0.62, green: 0.42, blue: 0.94)),
-        (4, "音乐", Color(red: 0.92, green: 0.44, blue: 0.55)),
-        (5, "备忘录", Color(red: 0.94, green: 0.72, blue: 0.36)),
+        (1, L10n.text("welcome.demo.editor"), Color(red: 0.36, green: 0.55, blue: 0.95)),
+        (2, L10n.text("welcome.demo.terminal"), Color(red: 0.34, green: 0.74, blue: 0.62)),
+        (3, L10n.text("welcome.demo.browser"), Color(red: 0.62, green: 0.42, blue: 0.94)),
+        (4, L10n.text("welcome.demo.music"), Color(red: 0.92, green: 0.44, blue: 0.55)),
+        (5, L10n.text("welcome.demo.notes"), Color(red: 0.94, green: 0.72, blue: 0.36)),
     ]
 
     init() {
@@ -484,7 +484,7 @@ struct WelcomeRootView: View {
             ChapterProgress()
             Spacer(minLength: 8)
             GlyphButton(symbol: "xmark") { model.skip() }
-                .help("跳过（Esc）")
+                .help(L10n.text("welcome.skip"))
         }
         .padding(.horizontal, 24)
         .padding(.top, 20)
@@ -534,9 +534,9 @@ struct WelcomeRootView: View {
     private var footer: some View {
         HStack(spacing: 12) {
             if model.chapter.previous != nil {
-                GhostButton(title: "上一步") { model.retreat() }
+                GhostButton(title: L10n.text("welcome.back")) { model.retreat() }
             } else {
-                Text("Esc 跳过")
+                Text(L10n.text("welcome.escSkip"))
                     .font(.system(size: 11.5))
                     .foregroundStyle(.white.opacity(0.28))
             }
@@ -545,7 +545,7 @@ struct WelcomeRootView: View {
                 WelcomeKeycap(label: "Enter")
                     .opacity(0.9)
                 PrimaryButton(
-                    title: model.chapter == .ready ? "开始使用" : "继续",
+                    title: model.chapter == .ready ? L10n.text("welcome.start") : L10n.text("welcome.continue"),
                     accent: model.chapter.accent
                 ) {
                     model.advance()

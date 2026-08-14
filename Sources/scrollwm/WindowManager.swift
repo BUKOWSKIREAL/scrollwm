@@ -2010,7 +2010,7 @@ final class WindowManager {
     // MARK: - 状态
 
     var statusSummary: String {
-        "\(strip.count) 列 · 焦点 \(strip.focusedID.map(String.init) ?? "-")"
+        L10n.text("status.summary", "\(strip.count)", strip.focusedID.map(String.init) ?? "-")
     }
 }
 

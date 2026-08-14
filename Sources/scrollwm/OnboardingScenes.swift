@@ -32,14 +32,14 @@ struct OvertureScene: View {
                     .tracking(4)
                     .foregroundStyle(.white.opacity(0.96))
 
-                Text("窗口管理，不必再像整理桌面。")
+                Text(L10n.text("welcome.overture.tagline"))
                     .font(.system(size: 21, weight: .medium))
                     .foregroundStyle(.white.opacity(0.82))
                     .padding(.top, 20)
 
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("把它们放进一条没有尽头的纸带。")
-                    Text("焦点走到哪里，桌面就跟到哪里。")
+                    Text(L10n.text("welcome.overture.line1"))
+                    Text(L10n.text("welcome.overture.line2"))
                 }
                 .font(.system(size: 13.5))
                 .foregroundStyle(.white.opacity(0.48))
@@ -47,7 +47,7 @@ struct OvertureScene: View {
 
                 HStack(spacing: 10) {
                     WelcomeKeycap(label: "Enter")
-                    Text("按 Enter 开始导览")
+                    Text(L10n.text("welcome.overture.pressEnter"))
                         .font(.system(size: 11.5, weight: .medium))
                         .foregroundStyle(.white.opacity(0.36))
                 }
@@ -409,19 +409,19 @@ struct PermissionCard: View {
         VStack(spacing: 18) {
             statusBadge
 
-            Text(model.trusted ? "辅助功能已授权" : "还差一个辅助功能权限")
+            Text(model.trusted ? L10n.text("welcome.permission.granted") : L10n.text("welcome.permission.needed"))
                 .font(.system(size: 17, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.94))
 
             if !model.trusted {
-                PrimaryButton(title: "打开系统设置授权", accent: WelcomePalette.teal) {
+                PrimaryButton(title: L10n.text("welcome.permission.openSettings"), accent: WelcomePalette.teal) {
                     model.requestPermission()
                 }
-                Text("在「隐私与安全性 → 辅助功能」里勾选 ScrollWM，勾上就会自动继续")
+                Text(L10n.text("welcome.permission.autoContinue"))
                     .font(.system(size: 11.5))
                     .foregroundStyle(.white.opacity(0.42))
             } else {
-                Label("ScrollWM 住在菜单栏，随时可以打开设置", systemImage: "menubar.arrow.up.rectangle")
+                Label(L10n.text("welcome.permission.menuBar"), systemImage: "menubar.arrow.up.rectangle")
                     .font(.system(size: 12))
                     .foregroundStyle(.white.opacity(0.55))
             }
@@ -527,14 +527,14 @@ struct ChapterCopy: View {
                         model.setFocusedWidth(preset)
                     }
                 }
-                PresetChip(label: "全宽", active: isActive(1.0), accent: chapter.accent) {
+                PresetChip(label: L10n.text("welcome.controls.fullWidth"), active: isActive(1.0), accent: chapter.accent) {
                     model.toggleFullWidth()
                 }
             }
             .padding(.top, 4)
         case .ring:
             HStack(spacing: 10) {
-                Text("焦点环")
+                Text(L10n.text("welcome.controls.focusRing"))
                     .font(.system(size: 12.5))
                     .foregroundStyle(.white.opacity(0.6))
                 GlowSwitch(isOn: model.ringOn) { model.toggleRing() }

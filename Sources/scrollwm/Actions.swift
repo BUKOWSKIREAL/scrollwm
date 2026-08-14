@@ -19,23 +19,9 @@ enum WMAction: String, CaseIterable {
 }
 
 extension WMAction {
-    /// 设置窗口与引导页共用的中文名
+    /// 设置窗口与引导页共用的动作名
     var title: String {
-        switch self {
-        case .focusLeft: return "焦点左移"
-        case .focusRight: return "焦点右移"
-        case .moveLeft: return "列左移"
-        case .moveRight: return "列右移"
-        case .cycleWidth: return "循环宽度预设"
-        case .growWidth: return "加宽"
-        case .shrinkWidth: return "减窄"
-        case .toggleFullWidth: return "切换全宽"
-        case .centerColumn: return "居中所选列"
-        case .toggleFloat: return "切换浮动"
-        case .closeWindow: return "关闭窗口"
-        case .retile: return "重新平铺"
-        case .unbind: return "解绑"
-        }
+        L10n.text("action.\(rawValue)")
     }
 
     /// 默认键位里绑到本动作的第一个组合键，供设置页与引导页展示

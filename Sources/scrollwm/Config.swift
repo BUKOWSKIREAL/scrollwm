@@ -12,6 +12,32 @@ enum NewWindowSide: String, Equatable {
     case right
 }
 
+/// 界面语言：默认跟随系统；可覆盖为英文或简体中文（下次启动生效）。
+enum AppLanguage: String, Equatable, CaseIterable {
+    case system = "system"
+    case english = "en"
+    case simplifiedChinese = "zh-hans"
+
+    /// 对应的 AppleLanguages 语言代码；跟随系统时为 nil
+    var appleCode: String? {
+        switch self {
+        case .system: return nil
+        case .english: return "en"
+        case .simplifiedChinese: return "zh-Hans"
+        }
+    }
+
+    /// 立即应用：写/清 AppleLanguages，并通知长驻 UI（菜单栏等）刷新文案
+    func apply() {
+        if let code = appleCode {
+            UserDefaults.standard.set([code], forKey: "AppleLanguages")
+        } else {
+            UserDefaults.standard.removeObject(forKey: "AppleLanguages")
+        }
+        NotificationCenter.default.post(name: .scrollWMLanguageChanged, object: nil)
+    }
+}
+
 /// 用户配置。缺省值即为推荐配置，配置文件可只覆盖关心的字段。
 struct Config: Equatable {
     var innerGap: Double = 6
@@ -21,6 +47,7 @@ struct Config: Equatable {
     var defaultWidth: Double = 0.5
     var resizeStep: Double = 0.05
     var newWindowSide: NewWindowSide = .right
+    var language: AppLanguage = .system
     var animationEnabled: Bool = true
     var animationMode: AnimationMode = .spring
     /// 实验性：动画期间把显示链路锁定在屏幕最大刷新率，更流畅但更耗电。
@@ -88,7 +115,7 @@ struct Config: Equatable {
             return (Config(), [])
         }
         guard let text = try? String(contentsOfFile: path, encoding: .utf8) else {
-            return (Config(), ["无法读取 \(path)，使用默认配置"])
+            return (Config(), [L10n.text("config.warn.unreadable", path)])
         }
         return parse(toml: text)
     }
@@ -101,13 +128,23 @@ struct Config: Equatable {
         do {
             table = try TOMLTable(string: text)
         } catch {
-            return (Config(), ["TOML 解析失败：\(error)，使用默认配置"])
+            return (Config(), [L10n.text("config.warn.toml", "\(error)")])
         }
 
         func number(_ value: TOMLValueConvertible?) -> Double? {
             if let d = value?.tomlValue.double { return d }
             if let i = value?.tomlValue.int { return Double(i) }
             return nil
+        }
+
+        if let general = table["general"]?.tomlValue.table {
+            if let name = general["language"]?.tomlValue.string {
+                if let lang = AppLanguage(rawValue: name) {
+                    config.language = lang
+                } else {
+                    warnings.append(L10n.text("config.warn.unknownLanguage", name))
+                }
+            }
         }
 
         if let gaps = table["gaps"]?.tomlValue.table {
@@ -120,7 +157,7 @@ struct Config: Equatable {
             if let arr = layout["width_presets"]?.tomlValue.array {
                 let presets = arr.compactMap { number($0) }.filter { $0 > 0.05 && $0 <= 1.0 }
                 if presets.isEmpty {
-                    warnings.append("width_presets 为空或非法，保留默认")
+                    warnings.append(L10n.text("config.warn.presetsEmpty"))
                 } else {
                     config.widthPresets = presets.sorted()
                 }
@@ -135,7 +172,7 @@ struct Config: Equatable {
                 if let side = NewWindowSide(rawValue: name) {
                     config.newWindowSide = side
                 } else {
-                    warnings.append("未知 layout.new_window_side \"\(name)\"，可选：left / right")
+                    warnings.append(L10n.text("config.warn.newWindowSide", name))
                 }
             }
         }
@@ -151,7 +188,7 @@ struct Config: Equatable {
                 if let mode = AnimationMode(rawValue: name) {
                     config.animationMode = mode
                 } else {
-                    warnings.append("未知 animation.mode \"\(name)\"，可选：spring / easing")
+                    warnings.append(L10n.text("config.warn.animationMode", name))
                 }
             }
             if let v = number(animation["duration_ms"]), v >= 0, v <= 1000 {
@@ -162,24 +199,24 @@ struct Config: Equatable {
                     config.animationCurve = curve
                 } else {
                     warnings.append(
-                        "未知 animation.curve \"\(name)\"，可选：ease-out-quint / ease-out-cubic / ease-out-expo / smoothstep"
+                        L10n.text("config.warn.animationCurve", name)
                     )
                 }
             }
             if let v = number(animation["damping_ratio"]), v >= 0.1, v <= 10 {
                 config.springDampingRatio = v
             } else if animation["damping_ratio"] != nil {
-                warnings.append("animation.damping_ratio 必须在 0.1...10 之间")
+                warnings.append(L10n.text("config.warn.damping"))
             }
             if let v = number(animation["stiffness"]), v >= 1, v <= 5000 {
                 config.springStiffness = v
             } else if animation["stiffness"] != nil {
-                warnings.append("animation.stiffness 必须在 1...5000 之间")
+                warnings.append(L10n.text("config.warn.stiffness"))
             }
             if let v = number(animation["epsilon"]), v >= 0.00001, v <= 0.1 {
                 config.springEpsilon = v
             } else if animation["epsilon"] != nil {
-                warnings.append("animation.epsilon 必须在 0.00001...0.1 之间")
+                warnings.append(L10n.text("config.warn.epsilon"))
             }
         }
 
@@ -190,12 +227,12 @@ struct Config: Equatable {
             if let v = number(focusRing["width"]), v >= 1, v <= 8 {
                 config.focusRingWidth = v
             } else if focusRing["width"] != nil {
-                warnings.append("focus_ring.width 必须在 1...8 之间")
+                warnings.append(L10n.text("config.warn.ringWidth"))
             }
             if let v = number(focusRing["glow_radius"]), v >= 0, v <= 24 {
                 config.focusRingGlowRadius = v
             } else if focusRing["glow_radius"] != nil {
-                warnings.append("focus_ring.glow_radius 必须在 0...24 之间")
+                warnings.append(L10n.text("config.warn.ringGlow"))
             }
             if let v = focusRing["always_on"]?.tomlValue.bool {
                 config.focusRingAlwaysOn = v
@@ -219,11 +256,11 @@ struct Config: Equatable {
             var bindings = Config.defaultBindings
             for key in bindingsTable.keys {
                 guard let name = bindingsTable[key]?.tomlValue.string else {
-                    warnings.append("键位 \(key) 的动作不是字符串，忽略")
+                    warnings.append(L10n.text("config.warn.bindingNotString", key))
                     continue
                 }
                 guard let action = WMAction(rawValue: name) else {
-                    warnings.append("未知动作 \"\(name)\"（键位 \(key)），忽略")
+                    warnings.append(L10n.text("config.warn.unknownAction", name, key))
                     continue
                 }
                 let combo = key.lowercased()
@@ -267,18 +304,21 @@ struct Config: Equatable {
     /// 与 parse 往返一致：解绑的默认键位写 "none"，其余按键位名字典序。
     func serialize() -> String {
         var lines: [String] = []
-        lines.append("# scrollwm 配置文件（保存后自动热重载；设置窗口与手改此文件双向同步）")
+        lines.append("# \(L10n.text("config.header"))")
+        lines.append("")
+        lines.append("[general]")
+        lines.append("language = \"\(language.rawValue)\"   # \(L10n.text("config.general.language"))")
         lines.append("")
         lines.append("[gaps]")
-        lines.append("inner = \(Self.toml(innerGap))           # 列间距（可自由调整）")
-        lines.append("outer = \(Self.toml(outerGap))          # 屏幕外边距")
-        lines.append("screen_margin = \(Self.toml(screenMargin))   # 视口外停靠列露出的细纸边宽度")
+        lines.append("inner = \(Self.toml(innerGap))           # \(L10n.text("config.gaps.inner"))")
+        lines.append("outer = \(Self.toml(outerGap))          # \(L10n.text("config.gaps.outer"))")
+        lines.append("screen_margin = \(Self.toml(screenMargin))   # \(L10n.text("config.gaps.screenMargin"))")
         lines.append("")
         lines.append("[layout]")
-        lines.append("width_presets = [\(widthPresets.map(Self.toml).joined(separator: ", "))]  # cycle-width 循环的宽度预设")
-        lines.append("default_width = \(Self.toml(defaultWidth))                       # 新窗口默认列宽")
-        lines.append("resize_step = \(Self.toml(resizeStep))                        # grow/shrink-width 步长")
-        lines.append("new_window_side = \"\(newWindowSide.rawValue)\"                  # 新窗口插在焦点列的 left / right")
+        lines.append("width_presets = [\(widthPresets.map(Self.toml).joined(separator: ", "))]  # \(L10n.text("config.layout.presets"))")
+        lines.append("default_width = \(Self.toml(defaultWidth))                       # \(L10n.text("config.layout.defaultWidth"))")
+        lines.append("resize_step = \(Self.toml(resizeStep))                        # \(L10n.text("config.layout.resizeStep"))")
+        lines.append("new_window_side = \"\(newWindowSide.rawValue)\"                  # \(L10n.text("config.layout.newWindowSide"))")
         lines.append("")
         lines.append("[animation]")
         lines.append("enabled = \(animationEnabled)")
@@ -286,25 +326,25 @@ struct Config: Equatable {
         lines.append("damping_ratio = \(Self.toml(springDampingRatio))")
         lines.append("stiffness = \(Self.toml(springStiffness))")
         lines.append("epsilon = \(Self.toml(springEpsilon))")
-        lines.append("duration_ms = \(Self.toml(animationDurationMs))   # mode = \"easing\" 时使用")
-        lines.append("curve = \"\(animationCurve.rawValue)\"  # mode = \"easing\" 时使用")
-        lines.append("high_frame_rate = \(animationHighFrameRate)   # 实验性：动画锁定屏幕最大刷新率（如 120Hz），可能明显增加耗电")
+        lines.append("duration_ms = \(Self.toml(animationDurationMs))   # \(L10n.text("config.animation.easing"))")
+        lines.append("curve = \"\(animationCurve.rawValue)\"  # \(L10n.text("config.animation.easing"))")
+        lines.append("high_frame_rate = \(animationHighFrameRate)   # \(L10n.text("config.animation.highFrameRate"))")
         lines.append("")
         lines.append("[focus_ring]")
         lines.append("enabled = \(focusRingEnabled)")
         lines.append("width = \(Self.toml(focusRingWidth))")
         lines.append("glow_radius = \(Self.toml(focusRingGlowRadius))")
-        lines.append("always_on = \(focusRingAlwaysOn)   # 在后台也显示焦点环：切到其他 App 时仍高亮当前纸带焦点列")
+        lines.append("always_on = \(focusRingAlwaysOn)   # \(L10n.text("config.ring.alwaysOn"))")
         lines.append("")
         lines.append("[compositor]")
-        lines.append("enabled = \(compositorEnabled)   # 合成器级动画需关 SIP 并注入 Dock，见 docs/COMPOSITOR-SETUP.md")
+        lines.append("enabled = \(compositorEnabled)   # \(L10n.text("config.compositor.note"))")
         lines.append("")
         lines.append("[apps]")
         let ignored = ignoreBundleIDs.sorted().map { "\"\($0)\"" }.joined(separator: ", ")
-        lines.append("ignore = [\(ignored)]   # 不接管的 App（bundle id）")
+        lines.append("ignore = [\(ignored)]   # \(L10n.text("config.apps.ignore"))")
         lines.append("")
         lines.append("[bindings]")
-        lines.append("# 键位格式：\"修饰键-...-键名\" = \"动作\"；要解绑某项，把值改成 \"none\"")
+        lines.append("# \(L10n.text("config.bindings.format"))")
         for combo in Config.defaultBindingPairs.map(\.combo) {
             if let action = bindings[combo] {
                 lines.append("\"\(combo)\" = \"\(action.rawValue)\"")
@@ -353,49 +393,53 @@ struct Config: Equatable {
     }
 
     static let defaultTemplate = """
-    # scrollwm 配置文件（保存后自动热重载）
+    # \(L10n.text("config.templateHeader"))
+
+    [general]
+    language = "system"   # \(L10n.text("config.general.language"))
 
     [gaps]
-    inner = 6           # 列间距（可自由调整）
-    outer = 12          # 屏幕外边距
-    screen_margin = 6   # 视口外停靠列露出的细纸边宽度
+    inner = 6           # \(L10n.text("config.gaps.inner"))
+    outer = 12          # \(L10n.text("config.gaps.outer"))
+    screen_margin = 6   # \(L10n.text("config.gaps.screenMargin"))
 
     [layout]
-    width_presets = [0.33333, 0.5, 0.66667]  # cycle-width 循环的宽度预设
-    default_width = 0.5                       # 新窗口默认列宽
-    resize_step = 0.05                        # grow/shrink-width 步长
-    new_window_side = "right"                 # 新窗口插在焦点列的 left / right
+    width_presets = [0.33333, 0.5, 0.66667]  # \(L10n.text("config.layout.presets"))
+    default_width = 0.5                       # \(L10n.text("config.layout.defaultWidth"))
+    resize_step = 0.05                        # \(L10n.text("config.layout.resizeStep"))
+    new_window_side = "right"                 # \(L10n.text("config.layout.newWindowSide"))
 
     [animation]
     enabled = true
     mode = "spring"
-    # niri horizontal-view-movement 默认：最快到位且不回弹
+    # \(L10n.text("config.template.spring"))
     damping_ratio = 1.0
     stiffness = 800
     epsilon = 0.0001
-    # mode = "easing" 时使用下面两项
+    # \(L10n.text("config.template.easing"))
     duration_ms = 240
     curve = "ease-out-quint"
+    # \(L10n.text("config.animation.highFrameRate"))
+    high_frame_rate = false
 
     [focus_ring]
     enabled = true
     width = 3
     glow_radius = 9
-    always_on = false   # 在后台也显示焦点环：即使焦点在其他 App，当前纸带焦点列仍高亮
+    always_on = false   # \(L10n.text("config.ring.alwaysOn"))
 
     [apps]
-    # 不接管的 App（bundle id）
+    # \(L10n.text("config.apps.ignore"))
     ignore = []
-    # 示例：ignore = ["com.apple.systempreferences"]
+    # \(L10n.text("config.apps.example"))
 
-    # 键位格式："修饰键-...-键名" = "动作"
-    # 修饰键：alt / cmd / ctrl / shift；键名：字母、数字、minus、equal（即加号键）、
-    # plus（等同 equal）、kpplus/kpminus（数字小键盘）、方向键 left/right/up/down、space、tab 等
-    # 语义：默认键位始终生效，此处条目按键覆盖；写 "none" 可解绑某个默认键位。
+    # \(L10n.text("config.bindings.format"))
+    # \(L10n.text("config.bindings.modifiers"))
+    # \(L10n.text("config.bindings.semantics"))
     [bindings]
-    # 默认键位（无需重复，仅作参考）：
+    # \(L10n.text("config.bindings.defaults"))
     # "alt-left" = "focus-left"       "alt-right" = "focus-right"
-    # "alt-h" = "focus-left"          "alt-l" = "focus-right"   # Vim 风格别名
+    # "alt-h" = "focus-left"          "alt-l" = "focus-right"   # \(L10n.text("config.bindings.vimAliases"))
     # "alt-shift-h" = "move-left"     "alt-shift-l" = "move-right"
     # "alt-r" = "cycle-width"         "alt-f" = "toggle-full-width"
     # "alt-minus" = "shrink-width"    "alt-equal" = "grow-width"

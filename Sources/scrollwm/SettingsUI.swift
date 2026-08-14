@@ -40,7 +40,7 @@ final class SettingsModel: ObservableObject {
         if next.write() {
             if lastError != nil { lastError = nil }
         } else {
-            lastError = "配置保存失败，修改仅本次运行有效（\(Config.configPath)）"
+            lastError = L10n.text("settings.saveError", Config.configPath)
         }
         onChange?(next)
     }
@@ -116,7 +116,7 @@ final class SettingsWindowController: NSObject {
                 backing: .buffered,
                 defer: false
             )
-            w.title = "ScrollWM 设置"
+            w.title = L10n.text("settings.title")
             w.isOpaque = false
             w.backgroundColor = .clear
             w.isReleasedWhenClosed = false
@@ -172,10 +172,9 @@ private final class SettingsWindow: NSWindow {
 // MARK: - Root
 
 private enum SettingsSection: String, CaseIterable, Identifiable {
-    case general = "通用"
-    case tools = "工具"
-    case keys = "快捷键"
+    case general, tools, keys
     var id: String { rawValue }
+    var title: String { L10n.text("settings.section.\(rawValue)") }
 }
 
 struct SettingsRootView: View {
@@ -208,8 +207,8 @@ struct SettingsRootView: View {
 
     private var footer: some View {
         HStack(spacing: 10) {
-            Button("立即重排") { WindowManager.shared?.perform(.retile) }
-            Button("打开配置文件") {
+            Button(L10n.text("settings.footer.retile")) { WindowManager.shared?.perform(.retile) }
+            Button(L10n.text("settings.footer.openConfig")) {
                 NSWorkspace.shared.open(URL(fileURLWithPath: Config.configPath))
             }
             if let error = model.lastError {
@@ -236,7 +235,7 @@ private struct SlidingPillBar: View {
         HStack(spacing: 0) {
             ForEach(SettingsSection.allCases) { item in
                 let on = selection == item
-                Text(item.rawValue)
+                Text(item.title)
                     .font(.system(size: 13, weight: on ? .semibold : .medium))
                     .foregroundStyle(on ? Color.black : unselectedForeground)
                     .padding(.horizontal, 22)
@@ -394,34 +393,46 @@ private struct GeneralTab: View {
 
     var body: some View {
         TabScaffold {
-            Pane(title: "布局") {
-                NumberSlider(title: "列间距", range: 0...48, step: 1,
+            Pane(title: L10n.text("settings.language.title")) {
+                Picker("", selection: languageBinding()) {
+                    Text(L10n.text("settings.language.system")).tag(AppLanguage.system)
+                    Text(L10n.text("settings.language.zhHans")).tag(AppLanguage.simplifiedChinese)
+                    Text(L10n.text("settings.language.en")).tag(AppLanguage.english)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .frame(maxWidth: 320, alignment: .leading)
+                Text(L10n.text("settings.language.note"))
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Pane(title: L10n.text("settings.layout.title")) {
+                NumberSlider(title: L10n.text("settings.layout.innerGap"), range: 0...48, step: 1,
                              value: model.config.innerGap, format: { "\(Int($0))" },
                              preview: { v in model.preview { $0.innerGap = v } },
                              commit: { v in model.update { $0.innerGap = v } })
-                NumberSlider(title: "屏幕边距", range: 0...64, step: 1,
+                NumberSlider(title: L10n.text("settings.layout.outerGap"), range: 0...64, step: 1,
                              value: model.config.outerGap, format: { "\(Int($0))" },
                              preview: { v in model.preview { $0.outerGap = v } },
                              commit: { v in model.update { $0.outerGap = v } })
-                NumberSlider(title: "纸边宽度", range: 0...32, step: 1,
+                NumberSlider(title: L10n.text("settings.layout.screenMargin"), range: 0...32, step: 1,
                              value: model.config.screenMargin, format: { "\(Int($0))" },
                              preview: { v in model.preview { $0.screenMargin = v } },
                              commit: { v in model.update { $0.screenMargin = v } })
-                NumberSlider(title: "默认列宽", range: 0.1...1.0, step: 0.05,
+                NumberSlider(title: L10n.text("settings.layout.defaultWidth"), range: 0.1...1.0, step: 0.05,
                              value: model.config.defaultWidth, format: { String(format: "%.2f", $0) },
                              commit: { v in model.update { $0.defaultWidth = v } })
-                NumberSlider(title: "调宽步长", range: 0.01...0.5, step: 0.01,
+                NumberSlider(title: L10n.text("settings.layout.resizeStep"), range: 0.01...0.5, step: 0.01,
                              value: model.config.resizeStep, format: { String(format: "%.2f", $0) },
                              commit: { v in model.update { $0.resizeStep = v } })
-                Text("⌥＋/－ 与 ⌘＋/－ 都按这个步长改变列宽（占屏幕宽度的比例）。")
+                Text(L10n.text("settings.layout.resizeStepNote"))
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
                 HStack {
-                    Text("新窗口位置").frame(width: 88, alignment: .leading)
+                    Text(L10n.text("settings.layout.newWindowSide")).frame(width: 88, alignment: .leading)
                     Picker("", selection: model.binding(\.newWindowSide)) {
-                        Text("焦点左侧").tag(NewWindowSide.left)
-                        Text("焦点右侧").tag(NewWindowSide.right)
+                        Text(L10n.text("settings.layout.sideLeft")).tag(NewWindowSide.left)
+                        Text(L10n.text("settings.layout.sideRight")).tag(NewWindowSide.right)
                     }
                     .pickerStyle(.segmented)
                     .labelsHidden()
@@ -430,7 +441,7 @@ private struct GeneralTab: View {
                 }
 
                 HStack {
-                    Text("宽度预设").frame(width: 88, alignment: .leading)
+                    Text(L10n.text("settings.layout.presets")).frame(width: 88, alignment: .leading)
                     ForEach(model.config.widthPresets, id: \.self) { p in
                         HStack(spacing: 4) {
                             Text(String(format: "%.2f", p)).monospacedDigit()
@@ -439,7 +450,9 @@ private struct GeneralTab: View {
                             }
                             .buttonStyle(.plain).foregroundStyle(.secondary)
                             .disabled(model.config.widthPresets.count <= 1)
-                            .help(model.config.widthPresets.count <= 1 ? "至少保留一个预设" : "移除")
+                            .help(model.config.widthPresets.count <= 1
+                                  ? L10n.text("settings.layout.presetKeepOne")
+                                  : L10n.text("common.remove"))
                         }
                         .padding(.horizontal, 8).padding(.vertical, 3)
                         .modifier(GlassChip())
@@ -447,42 +460,42 @@ private struct GeneralTab: View {
                     TextField("0.4", text: $newPreset)
                         .textFieldStyle(.roundedBorder).frame(width: 52)
                         .onSubmit(addPreset)
-                    Button("添加", action: addPreset)
+                    Button(L10n.text("common.add"), action: addPreset)
                         .disabled(Double(newPreset) == nil)
                     Spacer()
                 }
             }
-            Pane(title: "动画") {
-                Toggle("窗口移动使用动画", isOn: model.binding(\.animationEnabled))
-                Picker("模式", selection: model.binding(\.animationMode)) {
-                    Text("弹簧").tag(AnimationMode.spring)
-                    Text("曲线").tag(AnimationMode.easing)
+            Pane(title: L10n.text("settings.animation.title")) {
+                Toggle(L10n.text("settings.animation.enabled"), isOn: model.binding(\.animationEnabled))
+                Picker(L10n.text("settings.animation.mode"), selection: model.binding(\.animationMode)) {
+                    Text(L10n.text("settings.animation.modeSpring")).tag(AnimationMode.spring)
+                    Text(L10n.text("settings.animation.modeEasing")).tag(AnimationMode.easing)
                 }
                 .pickerStyle(.segmented)
                 .frame(maxWidth: 240)
 
-                Toggle("高帧率（实验性）", isOn: model.binding(\.animationHighFrameRate))
+                Toggle(L10n.text("settings.animation.highFrameRate"), isOn: model.binding(\.animationHighFrameRate))
                     .disabled(!model.config.animationEnabled)
-                Text("把动画帧率锁定为屏幕最大刷新率（如 120Hz），窗口移动更流畅，但可能明显增加电量消耗。")
+                Text(L10n.text("settings.animation.highFrameRateNote"))
                     .font(.caption).foregroundStyle(.secondary)
 
-                DisclosureGroup("高级参数", isExpanded: $showAdvanced) {
+                DisclosureGroup(L10n.text("settings.animation.advanced"), isExpanded: $showAdvanced) {
                     if model.config.animationMode == .spring {
-                        NumberSlider(title: "刚度", range: 1...5000, step: 10,
+                        NumberSlider(title: L10n.text("settings.animation.stiffness"), range: 1...5000, step: 10,
                                      value: model.config.springStiffness, format: { "\(Int($0))" },
                                      commit: { v in model.update { $0.springStiffness = v } })
-                        NumberSlider(title: "阻尼比", range: 0.1...10, step: 0.05,
+                        NumberSlider(title: L10n.text("settings.animation.damping"), range: 0.1...10, step: 0.05,
                                      value: model.config.springDampingRatio, format: { String(format: "%.2f", $0) },
                                      commit: { v in model.update { $0.springDampingRatio = v } })
                     } else {
-                        NumberSlider(title: "时长", range: 0...1000, step: 10,
+                        NumberSlider(title: L10n.text("settings.animation.duration"), range: 0...1000, step: 10,
                                      value: model.config.animationDurationMs, format: { "\(Int($0)) ms" },
                                      commit: { v in model.update { $0.animationDurationMs = v } })
-                        Picker("曲线", selection: model.binding(\.animationCurve)) {
-                            Text("五次缓出").tag(Interpolation.Curve.easeOutQuint)
-                            Text("三次缓出").tag(Interpolation.Curve.easeOutCubic)
-                            Text("指数缓出").tag(Interpolation.Curve.easeOutExpo)
-                            Text("平滑步进").tag(Interpolation.Curve.smoothstep)
+                        Picker(L10n.text("settings.animation.curve"), selection: model.binding(\.animationCurve)) {
+                            Text(L10n.text("settings.animation.curveQuint")).tag(Interpolation.Curve.easeOutQuint)
+                            Text(L10n.text("settings.animation.curveCubic")).tag(Interpolation.Curve.easeOutCubic)
+                            Text(L10n.text("settings.animation.curveExpo")).tag(Interpolation.Curve.easeOutExpo)
+                            Text(L10n.text("settings.animation.curveSmooth")).tag(Interpolation.Curve.smoothstep)
                         }
                         .pickerStyle(.menu)
                         .frame(maxWidth: 240, alignment: .leading)
@@ -491,6 +504,18 @@ private struct GeneralTab: View {
                 .font(.subheadline)
             }
         }
+    }
+
+    /// 语言切换：立即写 AppleLanguages 并通知菜单栏刷新，同时落盘配置
+    private func languageBinding() -> Binding<AppLanguage> {
+        Binding(
+            get: { model.config.language },
+            set: { lang in
+                guard lang != model.config.language else { return }
+                model.update { $0.language = lang }
+                lang.apply()
+            }
+        )
     }
 
     private func addPreset() {
@@ -516,27 +541,27 @@ private struct ToolsTab: View {
 
     var body: some View {
         TabScaffold {
-            Pane(title: "焦点环") {
-                Toggle("显示焦点环", isOn: model.binding(\.focusRingEnabled))
-                Toggle("在后台也显示焦点环", isOn: model.binding(\.focusRingAlwaysOn))
+            Pane(title: L10n.text("settings.ring.title")) {
+                Toggle(L10n.text("settings.ring.enabled"), isOn: model.binding(\.focusRingEnabled))
+                Toggle(L10n.text("settings.ring.alwaysOn"), isOn: model.binding(\.focusRingAlwaysOn))
                     .disabled(!model.config.focusRingEnabled)
                 Text(model.config.focusRingAlwaysOn
-                     ? "已开启：切到其他 App 时，当前纸带焦点列仍保持高亮"
-                     : "默认：切到其他 App 时焦点环隐藏，回到本 App 时再显示")
+                     ? L10n.text("settings.ring.alwaysOnNoteOn")
+                     : L10n.text("settings.ring.alwaysOnNoteOff"))
                     .font(.caption).foregroundStyle(.secondary)
-                NumberSlider(title: "边框宽度", range: 1...8, step: 1,
+                NumberSlider(title: L10n.text("settings.ring.borderWidth"), range: 1...8, step: 1,
                              value: model.config.focusRingWidth, format: { "\(Int($0))" },
                              preview: { v in model.preview { $0.focusRingWidth = v } },
                              commit: { v in model.update { $0.focusRingWidth = v } })
-                NumberSlider(title: "外发光", range: 0...24, step: 1,
+                NumberSlider(title: L10n.text("settings.ring.glow"), range: 0...24, step: 1,
                              value: model.config.focusRingGlowRadius, format: { "\(Int($0))" },
                              preview: { v in model.preview { $0.focusRingGlowRadius = v } },
                              commit: { v in model.update { $0.focusRingGlowRadius = v } })
             }
             AppsTab()
-            DisclosureGroup("高级：合成器动画") {
-                Toggle("启用 SkyLight 合成器", isOn: model.binding(\.compositorEnabled))
-                Text("需部分关闭 SIP 并注入 Dock，否则自动回退。见 docs/COMPOSITOR-SETUP.md。")
+            DisclosureGroup(L10n.text("settings.compositor.title")) {
+                Toggle(L10n.text("settings.compositor.enabled"), isOn: model.binding(\.compositorEnabled))
+                Text(L10n.text("settings.compositor.note"))
                     .font(.caption).foregroundStyle(.secondary)
             }
             .padding(14)
@@ -555,13 +580,13 @@ private struct AppsTab: View {
     var body: some View {
         let ignored = model.config.ignoreBundleIDs.sorted()
         VStack(alignment: .leading, spacing: 10) {
-            Text("忽略的应用").font(.headline)
-            Text("这些应用保持系统默认窗口，不被平铺")
+            Text(L10n.text("settings.apps.title")).font(.headline)
+            Text(L10n.text("settings.apps.subtitle"))
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
 
             if ignored.isEmpty {
-                Text("还没有忽略的应用")
+                Text(L10n.text("settings.apps.empty"))
                     .foregroundStyle(.tertiary)
                     .frame(maxWidth: .infinity, alignment: .center)
                     .padding(.vertical, 16)
@@ -577,9 +602,9 @@ private struct AppsTab: View {
                 Button {
                     showPicker = true
                 } label: {
-                    Label("添加应用", systemImage: "plus")
+                    Label(L10n.text("settings.apps.add"), systemImage: "plus")
                 }
-                Button(showManual ? "收起" : "手动输入") {
+                Button(showManual ? L10n.text("settings.apps.manualCollapse") : L10n.text("settings.apps.manual")) {
                     withAnimation(.easeInOut(duration: 0.15)) { showManual.toggle() }
                 }
                 .buttonStyle(.plain)
@@ -592,7 +617,7 @@ private struct AppsTab: View {
                     TextField("com.apple.systempreferences", text: $manualID)
                         .textFieldStyle(.roundedBorder)
                         .onSubmit(addManual)
-                    Button("添加", action: addManual)
+                    Button(L10n.text("common.add"), action: addManual)
                         .disabled(manualID.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
             }
@@ -702,12 +727,12 @@ private struct AppPickerSheet: View {
         VStack(spacing: 0) {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("选择要忽略的应用").font(.headline)
-                    Text("已忽略的应用不会被平铺")
+                    Text(L10n.text("settings.apps.pickerTitle")).font(.headline)
+                    Text(L10n.text("settings.apps.pickerSubtitle"))
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
-                Button("完成") { dismiss() }
+                Button(L10n.text("settings.apps.pickerDone")) { dismiss() }
                     .buttonStyle(.borderedProminent)
                     .keyboardShortcut(.defaultAction)
             }
@@ -715,7 +740,7 @@ private struct AppPickerSheet: View {
             Divider()
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                TextField("搜索应用名称或 bundle ID", text: $query)
+                TextField(L10n.text("settings.apps.pickerSearch"), text: $query)
                     .textFieldStyle(.plain)
                 if !query.isEmpty {
                     Button { query = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary) }
@@ -730,7 +755,7 @@ private struct AppPickerSheet: View {
             if loading {
                 VStack(spacing: 10) {
                     ProgressView().scaleEffect(0.9)
-                    Text("正在扫描应用…").font(.caption).foregroundStyle(.secondary)
+                    Text(L10n.text("settings.apps.pickerScanning")).font(.caption).foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if filtered.isEmpty {
@@ -819,11 +844,11 @@ private struct AppPickerRow: View {
             }
             Spacer()
             if isIgnored {
-                Label("已忽略", systemImage: "checkmark.circle.fill")
+                Label(L10n.text("settings.apps.pickerIgnored"), systemImage: "checkmark.circle.fill")
                     .font(.caption).foregroundStyle(.secondary)
                     .labelStyle(.titleAndIcon)
             } else {
-                Button("添加") { onAdd() }
+                Button(L10n.text("common.add")) { onAdd() }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
             }
@@ -842,8 +867,8 @@ private struct BindingsTab: View {
 
     var body: some View {
         TabScaffold {
-            Pane(title: "快捷键") {
-                Text("点击「录入」后按下组合键。")
+            Pane(title: L10n.text("settings.section.keys")) {
+                Text(L10n.text("settings.keys.hint"))
                     .font(.caption).foregroundStyle(.secondary)
                 VStack(spacing: 2) {
                     ForEach(WMAction.allCases.filter { $0 != .unbind }, id: \.self) { action in
@@ -867,7 +892,7 @@ private struct BindingsTab: View {
                     comboChip(combo)
                 }
                 if combos.isEmpty {
-                    Text("未绑定")
+                    Text(L10n.text("settings.keys.unbound"))
                         .font(.system(size: 11))
                         .foregroundStyle(.tertiary)
                         .padding(.top, 5)
@@ -894,7 +919,7 @@ private struct BindingsTab: View {
             }
             .buttonStyle(.plain)
             .foregroundStyle(.secondary)
-            .help("移除")
+            .help(L10n.text("common.remove"))
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
@@ -909,11 +934,11 @@ private struct BindingsTab: View {
                     handleKey(action: action, keyCode: keyCode, flags: flags)
                 }
                 .frame(width: 120, height: 22)
-                Button("取消") { recording = nil }
+                Button(L10n.text("common.cancel")) { recording = nil }
                     .controlSize(.small)
             }
         } else {
-            Button("录入…") { recording = action }
+            Button(L10n.text("settings.keys.record")) { recording = action }
                 .controlSize(.small)
         }
     }

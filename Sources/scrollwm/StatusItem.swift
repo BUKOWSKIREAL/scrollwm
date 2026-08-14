@@ -4,11 +4,14 @@ import ServiceManagement
 /// 菜单栏逃生门：暂停/恢复、立即重排、重载配置、开机自启、退出
 final class StatusItemController: NSObject {
     private var statusItem: NSStatusItem?
-    private let pauseItem = NSMenuItem(title: "暂停管理", action: #selector(togglePause), keyEquivalent: "")
-    private let stateItem = NSMenuItem(title: "启动中…", action: nil, keyEquivalent: "")
-    private let loginItem = NSMenuItem(title: "开机自启", action: #selector(toggleLoginItem), keyEquivalent: "")
-    private let checkItem = NSMenuItem(title: "检查辅助功能授权", action: #selector(checkPermission), keyEquivalent: "")
-    private let accessibilitySettingsItem = NSMenuItem(title: "打开系统设置 → 辅助功能", action: #selector(openSettings), keyEquivalent: "")
+    private let pauseItem = NSMenuItem(title: "", action: #selector(togglePause), keyEquivalent: "")
+    private let stateItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+    private let loginItem = NSMenuItem(title: "", action: #selector(toggleLoginItem), keyEquivalent: "")
+    private let checkItem = NSMenuItem(title: "", action: #selector(checkPermission), keyEquivalent: "")
+    private let accessibilitySettingsItem = NSMenuItem(title: "", action: #selector(openSettings), keyEquivalent: "")
+    private let appSettingsItem = NSMenuItem(title: "", action: #selector(openAppSettings), keyEquivalent: "")
+    private let welcomeItem = NSMenuItem(title: "", action: #selector(showWelcome), keyEquivalent: "")
+    private let quitItem = NSMenuItem(title: "", action: #selector(quit), keyEquivalent: "q")
 
     var onQuit: (() -> Void)?
     var onCheckPermission: (() -> Void)?
@@ -58,11 +61,9 @@ final class StatusItemController: NSObject {
         pauseItem.target = self
         menu.addItem(pauseItem)
 
-        let appSettingsItem = NSMenuItem(title: "设置…", action: #selector(openAppSettings), keyEquivalent: "")
         appSettingsItem.target = self
         menu.addItem(appSettingsItem)
 
-        let welcomeItem = NSMenuItem(title: "欢迎介绍…", action: #selector(showWelcome), keyEquivalent: "")
         welcomeItem.target = self
         menu.addItem(welcomeItem)
 
@@ -74,12 +75,17 @@ final class StatusItemController: NSObject {
 
         menu.addItem(.separator())
 
-        let quitItem = NSMenuItem(title: "退出 scrollwm", action: #selector(quit), keyEquivalent: "q")
         quitItem.target = self
         menu.addItem(quitItem)
 
         item.menu = menu
         statusItem = item
+
+        // 语言切换时（设置窗口改 AppleLanguages）跟着刷新静态菜单项
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(handleLanguageChanged),
+            name: .scrollWMLanguageChanged, object: nil
+        )
         refresh()
     }
 
@@ -105,6 +111,7 @@ final class StatusItemController: NSObject {
     }
 
     func refresh() {
+        localizeStaticItems()
         // 授权相关项只在未授权时露出，授权后菜单自动瘦身
         let trusted = AXIsProcessTrusted()
         checkItem.isHidden = trusted
@@ -112,19 +119,36 @@ final class StatusItemController: NSObject {
 
         guard let wm = WindowManager.shared else {
             let bid = Bundle.main.bundleIdentifier ?? "com.scrollwm.daemon"
-            stateItem.title = "等待辅助功能授权…"
+            stateItem.title = L10n.text("menu.state.waitingPermission")
             permissionHintItem.isHidden = false
-            permissionHintItem.title = "标识: \(bid)  · 需在 系统设置→隐私→辅助功能 中勾选"
+            permissionHintItem.title = L10n.text("menu.permissionHint", bid)
             pauseItem.isEnabled = false
             return
         }
         permissionHintItem.isHidden = true
         pauseItem.isEnabled = true
-        stateItem.title = wm.paused ? "已暂停" : "运行中 · \(wm.statusSummary)"
-        pauseItem.title = wm.paused ? "恢复管理" : "暂停管理"
+        stateItem.title = wm.paused
+            ? L10n.text("menu.state.paused")
+            : L10n.text("menu.state.running", wm.statusSummary)
+        pauseItem.title = wm.paused ? L10n.text("menu.resume") : L10n.text("menu.pause")
         if isBundled {
             loginItem.state = SMAppService.mainApp.status == .enabled ? .on : .off
         }
+    }
+
+    /// 静态菜单项文案（语言切换后由通知触发刷新）
+    private func localizeStaticItems() {
+        pauseItem.title = L10n.text("menu.pause")
+        loginItem.title = L10n.text("menu.loginItem")
+        checkItem.title = L10n.text("menu.checkPermission")
+        accessibilitySettingsItem.title = L10n.text("menu.openAccessibility")
+        appSettingsItem.title = L10n.text("menu.settings")
+        welcomeItem.title = L10n.text("menu.welcome")
+        quitItem.title = L10n.text("menu.quit")
+    }
+
+    @objc private func handleLanguageChanged() {
+        refresh()
     }
 
     @objc private func togglePause() {

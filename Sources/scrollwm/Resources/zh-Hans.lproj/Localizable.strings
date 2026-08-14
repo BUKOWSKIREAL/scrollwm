@@ -1,0 +1,197 @@
+/* ScrollWM 简体中文文案 */
+
+/* 菜单栏 */
+"menu.state.starting" = "启动中…";
+"menu.state.waitingPermission" = "等待辅助功能授权…";
+"menu.state.paused" = "已暂停";
+"menu.state.running" = "运行中 · %@";
+"menu.pause" = "暂停管理";
+"menu.resume" = "恢复管理";
+"menu.loginItem" = "开机自启";
+"menu.checkPermission" = "检查辅助功能授权";
+"menu.openAccessibility" = "打开系统设置 → 辅助功能";
+"menu.settings" = "设置…";
+"menu.welcome" = "欢迎介绍…";
+"menu.quit" = "退出 scrollwm";
+"menu.permissionHint" = "标识: %@ · 需在 系统设置→隐私→辅助功能 中勾选";
+"status.summary" = "%@ 列 · 焦点 %@";
+
+/* 动作名 */
+"action.focus-left" = "焦点左移";
+"action.focus-right" = "焦点右移";
+"action.move-left" = "列左移";
+"action.move-right" = "列右移";
+"action.cycle-width" = "循环宽度预设";
+"action.grow-width" = "加宽";
+"action.shrink-width" = "减窄";
+"action.toggle-full-width" = "切换全宽";
+"action.center-column" = "居中所选列";
+"action.toggle-float" = "切换浮动";
+"action.close-window" = "关闭窗口";
+"action.retile" = "重新平铺";
+"action.unbind" = "解绑";
+
+/* 通用 */
+"common.add" = "添加";
+"common.remove" = "移除";
+"common.cancel" = "取消";
+
+/* 设置窗口 */
+"settings.title" = "ScrollWM 设置";
+"settings.footer.retile" = "立即重排";
+"settings.footer.openConfig" = "打开配置文件";
+"settings.saveError" = "配置保存失败，修改仅本次运行有效（%@）";
+"settings.section.general" = "通用";
+"settings.section.tools" = "工具";
+"settings.section.keys" = "快捷键";
+
+/* 语言 */
+"settings.language.title" = "语言";
+"settings.language.system" = "跟随系统";
+"settings.language.zhHans" = "简体中文";
+"settings.language.en" = "English";
+"settings.language.note" = "设置窗口与菜单栏立即切换；引导页等将在下次启动时使用新语言";
+
+/* 布局 */
+"settings.layout.title" = "布局";
+"settings.layout.innerGap" = "列间距";
+"settings.layout.outerGap" = "屏幕边距";
+"settings.layout.screenMargin" = "纸边宽度";
+"settings.layout.defaultWidth" = "默认列宽";
+"settings.layout.resizeStep" = "调宽步长";
+"settings.layout.resizeStepNote" = "⌥＋/－ 按这个步长改变列宽（占屏幕宽度的比例）。";
+"settings.layout.newWindowSide" = "新窗口位置";
+"settings.layout.sideLeft" = "焦点左侧";
+"settings.layout.sideRight" = "焦点右侧";
+"settings.layout.presets" = "宽度预设";
+"settings.layout.presetKeepOne" = "至少保留一个预设";
+
+/* 动画 */
+"settings.animation.title" = "动画";
+"settings.animation.enabled" = "窗口移动使用动画";
+"settings.animation.mode" = "模式";
+"settings.animation.modeSpring" = "弹簧";
+"settings.animation.modeEasing" = "曲线";
+"settings.animation.highFrameRate" = "高帧率（实验性）";
+"settings.animation.highFrameRateNote" = "把动画帧率锁定为屏幕最大刷新率（如 120Hz），窗口移动更流畅，但可能明显增加电量消耗。";
+"settings.animation.advanced" = "高级参数";
+"settings.animation.stiffness" = "刚度";
+"settings.animation.damping" = "阻尼比";
+"settings.animation.duration" = "时长";
+"settings.animation.curve" = "曲线";
+"settings.animation.curveQuint" = "五次缓出";
+"settings.animation.curveCubic" = "三次缓出";
+"settings.animation.curveExpo" = "指数缓出";
+"settings.animation.curveSmooth" = "平滑步进";
+
+/* 焦点环 */
+"settings.ring.title" = "焦点环";
+"settings.ring.enabled" = "显示焦点环";
+"settings.ring.alwaysOn" = "在后台也显示焦点环";
+"settings.ring.alwaysOnNoteOn" = "已开启：切到其他 App 时，当前纸带焦点列仍保持高亮";
+"settings.ring.alwaysOnNoteOff" = "默认：切到其他 App 时焦点环隐藏，回到本 App 时再显示";
+"settings.ring.borderWidth" = "边框宽度";
+"settings.ring.glow" = "外发光";
+
+/* 合成器 */
+"settings.compositor.title" = "高级：合成器动画";
+"settings.compositor.enabled" = "启用 SkyLight 合成器";
+"settings.compositor.note" = "需部分关闭 SIP 并注入 Dock，否则自动回退。见 docs/COMPOSITOR-SETUP.md。";
+
+/* 忽略的应用 */
+"settings.apps.title" = "忽略的应用";
+"settings.apps.subtitle" = "这些应用保持系统默认窗口，不被平铺";
+"settings.apps.empty" = "还没有忽略的应用";
+"settings.apps.add" = "添加应用";
+"settings.apps.manualCollapse" = "收起";
+"settings.apps.manual" = "手动输入";
+"settings.apps.pickerTitle" = "选择要忽略的应用";
+"settings.apps.pickerSubtitle" = "已忽略的应用不会被平铺";
+"settings.apps.pickerDone" = "完成";
+"settings.apps.pickerSearch" = "搜索应用名称或 bundle ID";
+"settings.apps.pickerScanning" = "正在扫描应用…";
+"settings.apps.pickerIgnored" = "已忽略";
+
+/* 快捷键页 */
+"settings.keys.hint" = "点击「录入」后按下组合键。";
+"settings.keys.unbound" = "未绑定";
+"settings.keys.record" = "录入…";
+
+/* 引导页 */
+"welcome.overture.hint" = "按 Enter 开始";
+"welcome.strip.title" = "纸带，而不是网格";
+"welcome.strip.body" = "窗口一列一列向右排开，永远不会互相遮挡。焦点走到哪里，视口就跟到哪里；够不着的列停在屏幕边缘，只露出一道纸边。";
+"welcome.strip.hint" = "按 ⌥← / ⌥→ 移动焦点，或直接点一个窗口";
+"welcome.width.title" = "宽度是可以商量的";
+"welcome.width.body" = "每一列都有自己的宽度。在预设之间循环，或者一点一点调，直到刚好。";
+"welcome.width.hint" = "按 ⌥－ / ⌥＋ 微调，⌥R 切换预设";
+"welcome.ring.title" = "焦点始终看得见";
+"welcome.ring.body" = "当前列外面有一圈渐变亮边，跟着窗口一起动。切到别的 App 时它会让路，也可以让它一直亮着。";
+"welcome.ring.hint" = "拨一下开关，看看两种效果";
+"welcome.keys.title" = "手不用离开键盘";
+"welcome.keys.body" = "所有动作都能绑定快捷键，下面是默认的一套。想改的话，在设置里点「录入」，按一下新组合就行。";
+"welcome.keys.hint" = "把鼠标放到键帽上";
+"welcome.ready.title" = "最后一步";
+"welcome.ready.body" = "ScrollWM 需要辅助功能权限才能移动别的 App 的窗口。授权之后它就住在菜单栏里，安静接管一切。";
+"welcome.skip" = "跳过（Esc）";
+"welcome.back" = "上一步";
+"welcome.escSkip" = "Esc 跳过";
+"welcome.start" = "开始使用";
+"welcome.continue" = "继续";
+"welcome.overture.tagline" = "窗口管理，不必再像整理桌面。";
+"welcome.overture.line1" = "把它们放进一条没有尽头的纸带。";
+"welcome.overture.line2" = "焦点走到哪里，桌面就跟到哪里。";
+"welcome.overture.pressEnter" = "按 Enter 开始导览";
+"welcome.demo.editor" = "编辑器";
+"welcome.demo.terminal" = "终端";
+"welcome.demo.browser" = "浏览器";
+"welcome.demo.music" = "音乐";
+"welcome.demo.notes" = "备忘录";
+"welcome.permission.granted" = "辅助功能已授权";
+"welcome.permission.needed" = "还差一个辅助功能权限";
+"welcome.permission.openSettings" = "打开系统设置授权";
+"welcome.permission.autoContinue" = "在「隐私与安全性 → 辅助功能」里勾选 ScrollWM，勾上就会自动继续";
+"welcome.permission.menuBar" = "ScrollWM 住在菜单栏，随时可以打开设置";
+"welcome.controls.fullWidth" = "全宽";
+"welcome.controls.focusRing" = "焦点环";
+
+/* 配置文件注释 */
+"config.header" = "scrollwm 配置文件（保存后自动热重载；设置窗口与手改此文件双向同步）";
+"config.general.language" = "语言：system / en / zh-hans";
+"config.gaps.inner" = "列间距（可自由调整）";
+"config.gaps.outer" = "屏幕外边距";
+"config.gaps.screenMargin" = "视口外停靠列露出的细纸边宽度";
+"config.layout.presets" = "cycle-width 循环的宽度预设";
+"config.layout.defaultWidth" = "新窗口默认列宽";
+"config.layout.resizeStep" = "grow/shrink-width 步长";
+"config.layout.newWindowSide" = "新窗口插在焦点列的 left / right";
+"config.animation.easing" = "mode = \"easing\" 时使用";
+"config.animation.highFrameRate" = "实验性：动画锁定屏幕最大刷新率（如 120Hz），可能明显增加耗电";
+"config.ring.alwaysOn" = "在后台也显示焦点环：切到其他 App 时仍高亮当前纸带焦点列";
+"config.compositor.note" = "合成器级动画需关 SIP 并注入 Dock，见 docs/COMPOSITOR-SETUP.md";
+"config.apps.ignore" = "不接管的 App（bundle id）";
+"config.apps.example" = "示例：ignore = [\"com.apple.systempreferences\"]";
+"config.bindings.format" = "键位格式：\"修饰键-...-键名\" = \"动作\"；要解绑某项，把值改成 \"none\"";
+"config.bindings.modifiers" = "修饰键：alt / cmd / ctrl / shift；键名：字母、数字、minus、equal（即加号键）、plus（等同 equal）、kpplus/kpminus（数字小键盘）、方向键 left/right/up/down、space、tab 等";
+"config.bindings.semantics" = "语义：默认键位始终生效，此处条目按键覆盖；写 \"none\" 可解绑某个默认键位。";
+"config.bindings.defaults" = "默认键位（无需重复，仅作参考）：";
+"config.bindings.vimAliases" = "Vim 风格别名";
+"config.templateHeader" = "scrollwm 配置文件（保存后自动热重载）";
+"config.template.spring" = "niri horizontal-view-movement 默认：最快到位且不回弹";
+"config.template.easing" = "mode = \"easing\" 时使用下面两项";
+
+/* 配置警告 */
+"config.warn.unreadable" = "无法读取 %@，使用默认配置";
+"config.warn.toml" = "TOML 解析失败：%@，使用默认配置";
+"config.warn.presetsEmpty" = "width_presets 为空或非法，保留默认";
+"config.warn.newWindowSide" = "未知 layout.new_window_side \"%@\"，可选：left / right";
+"config.warn.animationMode" = "未知 animation.mode \"%@\"，可选：spring / easing";
+"config.warn.animationCurve" = "未知 animation.curve \"%@\"，可选：ease-out-quint / ease-out-cubic / ease-out-expo / smoothstep";
+"config.warn.damping" = "animation.damping_ratio 必须在 0.1...10 之间";
+"config.warn.stiffness" = "animation.stiffness 必须在 1...5000 之间";
+"config.warn.epsilon" = "animation.epsilon 必须在 0.00001...0.1 之间";
+"config.warn.ringWidth" = "focus_ring.width 必须在 1...8 之间";
+"config.warn.ringGlow" = "focus_ring.glow_radius 必须在 0...24 之间";
+"config.warn.bindingNotString" = "键位 %@ 的动作不是字符串，忽略";
+"config.warn.unknownAction" = "未知动作 \"%@\"（键位 %@），忽略";
+"config.warn.unknownLanguage" = "未知 general.language \"%@\"，可选：system / en / zh-hans";

@@ -91,11 +91,14 @@ The menu bar icon is the escape hatch: pause/resume management, the settings win
 
 ### Settings window
 
-Menu bar → **Settings…** opens a settings window covering every option: layout gaps/widths, animation, focus ring, compositor, ignored apps, and keybindings (press-to-record). Changes are written back to `config.toml` immediately and hot-reloaded — there is no Save button. Editing the file by hand remains fully supported, and external edits sync back into the open window. One note: saving from the settings window rewrites the file in canonical form; values are preserved, but custom comments may be replaced by the standard annotations.
+Menu bar → **Settings…** opens a settings window covering every option: layout gaps/widths, animation, focus ring, compositor, ignored apps, keybindings (press-to-record), and **language** (follows the macOS system language by default; English and Simplified Chinese are built in). Changes are written back to `config.toml` immediately and hot-reloaded — there is no Save button. Editing the file by hand remains fully supported, and external edits sync back into the open window. One note: saving from the settings window rewrites the file in canonical form; values are preserved, but custom comments may be replaced by the standard annotations.
 
 Manual configuration:
 
 ```toml
+[general]
+language = "system"   # UI language: "system" (follow macOS) / "zh-hans" / "en"
+
 [gaps]
 inner = 6           # gap between columns, freely adjustable
 outer = 12          # margin at the screen edges

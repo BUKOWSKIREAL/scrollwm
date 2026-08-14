@@ -1,0 +1,197 @@
+/* ScrollWM English localization */
+
+/* Menu bar */
+"menu.state.starting" = "Starting…";
+"menu.state.waitingPermission" = "Waiting for Accessibility…";
+"menu.state.paused" = "Paused";
+"menu.state.running" = "Running · %@";
+"menu.pause" = "Pause Management";
+"menu.resume" = "Resume Management";
+"menu.loginItem" = "Launch at Login";
+"menu.checkPermission" = "Check Accessibility Permission";
+"menu.openAccessibility" = "Open System Settings → Accessibility";
+"menu.settings" = "Settings…";
+"menu.welcome" = "Welcome Tour…";
+"menu.quit" = "Quit scrollwm";
+"menu.permissionHint" = "Identifier: %@ · enable it in System Settings → Privacy & Security → Accessibility";
+"status.summary" = "%@ columns · Focus %@";
+
+/* Action names */
+"action.focus-left" = "Focus Left";
+"action.focus-right" = "Focus Right";
+"action.move-left" = "Move Column Left";
+"action.move-right" = "Move Column Right";
+"action.cycle-width" = "Cycle Width Presets";
+"action.grow-width" = "Widen";
+"action.shrink-width" = "Narrow";
+"action.toggle-full-width" = "Toggle Full Width";
+"action.center-column" = "Center Focused Column";
+"action.toggle-float" = "Toggle Floating";
+"action.close-window" = "Close Window";
+"action.retile" = "Retile";
+"action.unbind" = "Unbind";
+
+/* Common */
+"common.add" = "Add";
+"common.remove" = "Remove";
+"common.cancel" = "Cancel";
+
+/* Settings window */
+"settings.title" = "ScrollWM Settings";
+"settings.footer.retile" = "Retile Now";
+"settings.footer.openConfig" = "Open Config File";
+"settings.saveError" = "Failed to save config; changes apply only for this session (%@)";
+"settings.section.general" = "General";
+"settings.section.tools" = "Tools";
+"settings.section.keys" = "Shortcuts";
+
+/* Language */
+"settings.language.title" = "Language";
+"settings.language.system" = "Follow System";
+"settings.language.zhHans" = "简体中文";
+"settings.language.en" = "English";
+"settings.language.note" = "Settings and the menu bar switch right away; the welcome tour and other surfaces use the new language on next launch.";
+
+/* Layout */
+"settings.layout.title" = "Layout";
+"settings.layout.innerGap" = "Column Gap";
+"settings.layout.outerGap" = "Outer Margin";
+"settings.layout.screenMargin" = "Strip Edge Width";
+"settings.layout.defaultWidth" = "Default Column Width";
+"settings.layout.resizeStep" = "Resize Step";
+"settings.layout.resizeStepNote" = "⌥+/− changes the column width by this step (fraction of the screen width).";
+"settings.layout.newWindowSide" = "New Window Side";
+"settings.layout.sideLeft" = "Left of Focus";
+"settings.layout.sideRight" = "Right of Focus";
+"settings.layout.presets" = "Width Presets";
+"settings.layout.presetKeepOne" = "Keep at least one preset";
+
+/* Animation */
+"settings.animation.title" = "Animation";
+"settings.animation.enabled" = "Animate window movement";
+"settings.animation.mode" = "Mode";
+"settings.animation.modeSpring" = "Spring";
+"settings.animation.modeEasing" = "Easing";
+"settings.animation.highFrameRate" = "High Frame Rate (Experimental)";
+"settings.animation.highFrameRateNote" = "Locks the animation to the display's maximum refresh rate (e.g. 120Hz) for smoother movement, but can noticeably increase power usage.";
+"settings.animation.advanced" = "Advanced";
+"settings.animation.stiffness" = "Stiffness";
+"settings.animation.damping" = "Damping Ratio";
+"settings.animation.duration" = "Duration";
+"settings.animation.curve" = "Curve";
+"settings.animation.curveQuint" = "Quint Ease-Out";
+"settings.animation.curveCubic" = "Cubic Ease-Out";
+"settings.animation.curveExpo" = "Expo Ease-Out";
+"settings.animation.curveSmooth" = "Smoothstep";
+
+/* Focus ring */
+"settings.ring.title" = "Focus Ring";
+"settings.ring.enabled" = "Show Focus Ring";
+"settings.ring.alwaysOn" = "Keep Focus Ring in Background";
+"settings.ring.alwaysOnNoteOn" = "On: the focused column stays highlighted even when another app is active";
+"settings.ring.alwaysOnNoteOff" = "Default: the ring hides when another app is active and reappears when you return";
+"settings.ring.borderWidth" = "Border Width";
+"settings.ring.glow" = "Glow Radius";
+
+/* Compositor */
+"settings.compositor.title" = "Advanced: Compositor Animation";
+"settings.compositor.enabled" = "Enable SkyLight Compositor";
+"settings.compositor.note" = "Requires partially disabling SIP and injecting into Dock, otherwise it falls back automatically. See docs/COMPOSITOR-SETUP.md.";
+
+/* Ignored apps */
+"settings.apps.title" = "Ignored Apps";
+"settings.apps.subtitle" = "These apps keep their system-default windows and are not tiled";
+"settings.apps.empty" = "No ignored apps yet";
+"settings.apps.add" = "Add App";
+"settings.apps.manualCollapse" = "Hide";
+"settings.apps.manual" = "Enter Manually";
+"settings.apps.pickerTitle" = "Choose Apps to Ignore";
+"settings.apps.pickerSubtitle" = "Ignored apps won't be tiled";
+"settings.apps.pickerDone" = "Done";
+"settings.apps.pickerSearch" = "Search by app name or bundle ID";
+"settings.apps.pickerScanning" = "Scanning apps…";
+"settings.apps.pickerIgnored" = "Ignored";
+
+/* Shortcuts tab */
+"settings.keys.hint" = "Click “Record”, then press a key combination.";
+"settings.keys.unbound" = "Unbound";
+"settings.keys.record" = "Record…";
+
+/* Welcome tour */
+"welcome.overture.hint" = "Press Enter to begin";
+"welcome.strip.title" = "A Strip, Not a Grid";
+"welcome.strip.body" = "Windows line up side by side and never overlap. The viewport follows the focus; columns out of reach park at the screen edge, showing just a sliver of paper.";
+"welcome.strip.hint" = "Press ⌥← / ⌥→ to move focus, or click a window";
+"welcome.width.title" = "Width Is Negotiable";
+"welcome.width.body" = "Every column has its own width. Cycle through presets or nudge it little by little until it's just right.";
+"welcome.width.hint" = "Press ⌥− / ⌥+ to nudge, ⌥R to cycle presets";
+"welcome.ring.title" = "Focus Is Always Visible";
+"welcome.ring.body" = "A glowing gradient edge wraps the focused column and moves with it. It steps aside when you switch apps — or you can keep it always on.";
+"welcome.ring.hint" = "Flip the switch to compare both looks";
+"welcome.keys.title" = "Hands Stay on the Keyboard";
+"welcome.keys.body" = "Every action can be bound to a shortcut — here are the defaults. To change one, open Settings, click “Record”, and press a new combination.";
+"welcome.keys.hint" = "Hover over a keycap";
+"welcome.ready.title" = "One Last Step";
+"welcome.ready.body" = "ScrollWM needs Accessibility permission to move other apps' windows. Once granted, it lives quietly in the menu bar and takes care of everything.";
+"welcome.skip" = "Skip (Esc)";
+"welcome.back" = "Back";
+"welcome.escSkip" = "Esc to skip";
+"welcome.start" = "Get Started";
+"welcome.continue" = "Continue";
+"welcome.overture.tagline" = "Window management that doesn't feel like tidying a desk.";
+"welcome.overture.line1" = "Put your windows on one endless strip.";
+"welcome.overture.line2" = "The desktop follows wherever focus goes.";
+"welcome.overture.pressEnter" = "Press Enter to start the tour";
+"welcome.demo.editor" = "Editor";
+"welcome.demo.terminal" = "Terminal";
+"welcome.demo.browser" = "Browser";
+"welcome.demo.music" = "Music";
+"welcome.demo.notes" = "Notes";
+"welcome.permission.granted" = "Accessibility Granted";
+"welcome.permission.needed" = "One Permission Left: Accessibility";
+"welcome.permission.openSettings" = "Open System Settings";
+"welcome.permission.autoContinue" = "Enable ScrollWM under “Privacy & Security → Accessibility” and the tour continues automatically";
+"welcome.permission.menuBar" = "ScrollWM lives in the menu bar; open Settings anytime";
+"welcome.controls.fullWidth" = "Full Width";
+"welcome.controls.focusRing" = "Focus Ring";
+
+/* Config file comments */
+"config.header" = "scrollwm config file (hot-reloads on save; the settings UI and manual edits stay in sync)";
+"config.general.language" = "Language: system / en / zh-hans";
+"config.gaps.inner" = "gap between columns (adjust freely)";
+"config.gaps.outer" = "outer screen margin";
+"config.gaps.screenMargin" = "width of the paper edge shown for parked columns";
+"config.layout.presets" = "width presets cycled by cycle-width";
+"config.layout.defaultWidth" = "default column width for new windows";
+"config.layout.resizeStep" = "step for grow/shrink-width";
+"config.layout.newWindowSide" = "insert new windows to the left / right of the focused column";
+"config.animation.easing" = "used when mode = \"easing\"";
+"config.animation.highFrameRate" = "experimental: lock animation to the screen's max refresh rate (e.g. 120Hz); may noticeably increase power draw";
+"config.ring.alwaysOn" = "show the focus ring in the background: highlight the focused column even when another app is active";
+"config.compositor.note" = "compositor-level animation requires disabling SIP and injecting into Dock; see docs/COMPOSITOR-SETUP.md";
+"config.apps.ignore" = "apps to leave alone (bundle ids)";
+"config.apps.example" = "example: ignore = [\"com.apple.systempreferences\"]";
+"config.bindings.format" = "binding format: \"modifier-...-key\" = \"action\"; set the value to \"none\" to unbind";
+"config.bindings.modifiers" = "modifiers: alt / cmd / ctrl / shift; keys: letters, digits, minus, equal (the plus key), plus (alias of equal), kpplus/kpminus (keypad), arrows left/right/up/down, space, tab, etc.";
+"config.bindings.semantics" = "semantics: default bindings always apply; entries here override per key; write \"none\" to unbind a default binding.";
+"config.bindings.defaults" = "default bindings (shown for reference only):";
+"config.bindings.vimAliases" = "Vim-style aliases";
+"config.templateHeader" = "scrollwm config file (hot-reloads on save)";
+"config.template.spring" = "niri horizontal-view-movement defaults: fastest settle, no bounce";
+"config.template.easing" = "the two settings below are used when mode = \"easing\"";
+
+/* Config warnings */
+"config.warn.unreadable" = "Cannot read %@; using default config";
+"config.warn.toml" = "TOML parse failed: %@; using default config";
+"config.warn.presetsEmpty" = "width_presets is empty or invalid; keeping defaults";
+"config.warn.newWindowSide" = "unknown layout.new_window_side \"%@\"; options: left / right";
+"config.warn.animationMode" = "unknown animation.mode \"%@\"; options: spring / easing";
+"config.warn.animationCurve" = "unknown animation.curve \"%@\"; options: ease-out-quint / ease-out-cubic / ease-out-expo / smoothstep";
+"config.warn.damping" = "animation.damping_ratio must be between 0.1 and 10";
+"config.warn.stiffness" = "animation.stiffness must be between 1 and 5000";
+"config.warn.epsilon" = "animation.epsilon must be between 0.00001 and 0.1";
+"config.warn.ringWidth" = "focus_ring.width must be between 1 and 8";
+"config.warn.ringGlow" = "focus_ring.glow_radius must be between 0 and 24";
+"config.warn.bindingNotString" = "binding %@ has a non-string action; ignored";
+"config.warn.unknownAction" = "unknown action \"%@\" (binding %@); ignored";
+"config.warn.unknownLanguage" = "unknown general.language \"%@\"; options: system / en / zh-hans";
