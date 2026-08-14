@@ -5,7 +5,12 @@ set -eu
 cd "$(dirname "$0")/.."
 
 CONFIG="${1:-release}"
-swift build -c "$CONFIG"
+ARCH="${SCROLLWM_ARCH:-arm64e}"
+if [ "$ARCH" = "arm64e" ]; then
+  swift build --arch arm64e -c "$CONFIG"
+else
+  swift build -c "$CONFIG"
+fi
 BIN="$(swift build -c "$CONFIG" --show-bin-path)/scrollwm"
 
 APP="dist/ScrollWM.app"
@@ -49,9 +54,9 @@ if [ -d "$RES_BUNDLE" ]; then
   cp -R "$RES_BUNDLE" "$APP/Contents/Resources/scrollwm_scrollwm.bundle"
 fi
 
-# 合成器 payload（可选）：存在则一并打进 App，供 --load-sa 注入 Dock
-if [ -d dist/ScrollWMSA.bundle ]; then
-  cp -R dist/ScrollWMSA.bundle "$APP/Contents/Resources/ScrollWMSA.bundle"
+# 合成器 payload（可选）：存在则一并打进 App，供 --load-sa 安装到 /Library/ScriptingAdditions
+if [ -d dist/ScrollWMSA.osax ]; then
+  cp -R dist/ScrollWMSA.osax "$APP/Contents/Resources/ScrollWMSA.osax"
 fi
 
 # 优先用稳定自签名身份，避免每次 ad-hoc 重打后辅助功能授权失效。

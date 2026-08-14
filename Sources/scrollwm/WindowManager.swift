@@ -308,6 +308,16 @@ final class WindowManager {
             animator.batchSink = nil
             if config.compositorEnabled {
                 Log.warn("已开启合成器但 payload 未连接，回退 AX。见 docs/COMPOSITOR-SETUP.md")
+                // 登录后首次运行时 Dock 里没有 payload：临时 DYLD 注入 + 重启 Dock
+                // 自动加载，几秒后重试连接（SIP 关闭 + osax 已安装才可行）。
+                if SAInjector.installedOsaxPresent(), !SAInjector.isAutoLoadingCompositor() {
+                    SAInjector.markAutoLoadingCompositor()
+                    Log.info("尝试自动加载合成器 payload 到 Dock…")
+                    SAInjector.activate()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 6) { [weak self] in
+                        self?.refreshCompositorBackend()
+                    }
+                }
             }
         }
     }

@@ -4,19 +4,24 @@ import Foundation
 
 /// 把 payload 注入 Dock 的加载器。
 ///
-/// ⚠️ 这是整套方案里**唯一随 macOS 版本变化**的部分。注入依赖 `task_for_pid` +
-/// 远程线程 + 解析目标进程内 `dlopen` 地址。这些在 SIP 关闭 + boot-arg 设置正确时
-/// 才可能成功；且 arm64 bootstrap 的正确性需在真机 bring-up 时用日志逐步验证。
+/// 主路径：task_for_pid + 远程线程 dlopen（需要 SIP 关闭 + arm64e_preview_abi）。
+/// macOS 27 的关键语义（SDK mach/arm/_structs.h 的 get/set_pc 宏）：线程入口 PC
+/// 必须由调用方用 process-independent code key + 字符串 discriminator "pc" 预先
+/// 签名，内核不再代签裸 PC（裸 PC 会在第一条指令取指时 PAC 崩溃，见
+/// DiagnosticReports/Dock-*.ips）。签名在 C 端 inject.c 完成。
 ///
-/// 为避免把未验证的机器码写进 Dock 导致其崩溃，`load()` 默认 **dry-run**：
-/// 只做到"拿到 task port + 解析出 dlopen 地址"并汇报，不真正写入/执行远程代码。
-/// 用 `--load-sa --force` 才会实际注入（bring-up 验证通过后再用）。
+/// 备路径：把 payload 组装成 scripting addition（osax）放进 /Library/ScriptingAdditions，
+/// Dock 在加载 osax 时由 dyld 正常加载 payload（yabai/BetterTouchTool 同款），
+/// 无需远程线程。两条路最终都是 payload constructor 注册 mach 服务。
+///
+/// `--load-sa` 默认 dry-run；`--load-sa --force` 才实际执行。
 enum SAInjector {
 
-    /// 版本相关常量集中区（bring-up 时按日志调整）
+    /// 版本相关常量集中区
     enum DockInjectionConstants {
-        static let payloadBundleName = "ScrollWMSA.bundle"
-        static let rtldNow: UInt64 = 2
+        static let payloadBundleName = "ScrollWMSA.osax"
+        static let scriptingAdditionsDir = "/Library/ScriptingAdditions"
+        static let payloadExecutableName = "ScrollWMSA"
     }
 
     struct Preconditions {
@@ -44,6 +49,7 @@ enum SAInjector {
         print("SIP 部分关闭:         \(p.sipLikelyDisabled ? "疑似是" : "否/未知")")
         print("boot-arg preview_abi: \(p.bootArgSet ? "已设" : "未设")")
         print("Dock PID:             \(p.dockPID.map(String.init) ?? "未找到")")
+        print("osax 已安装:          \(installedOsaxPath() != nil ? "是（\(installedOsaxPath()!)）" : "否")")
 
         // payload 是否已在 Dock 内（通过 mach 服务 ping）
         let mover = CompositorMover()
@@ -51,99 +57,113 @@ enum SAInjector {
         print("payload mach 服务:    \(connected ? "已注册（payload 在 Dock 内运行）" : "未注册")")
         print("===============================")
         if !connected {
-            print("提示：若前三项就绪但服务未注册，运行 `sudo scrollwm --load-sa` 加载 payload。")
+            print("提示：运行 `sudo scrollwm --load-sa --force` 注入；成功后重启 scrollwm 本体生效。")
         }
     }
 
     // MARK: - 加载
 
+    /// 主路径：把 payload osax 安装到 /Library/ScriptingAdditions，然后在用户会话里
+    /// 用 `launchctl setenv DYLD_INSERT_LIBRARIES` + 重启 Dock 让 dyld 把 payload
+    /// 加载进 Dock（macOS 27 上远程线程注入被内核 PAC/代码签名校验封死，此路径
+    /// 已实测可行；需要 SIP 关闭）。
+    ///
+    /// 远程线程（task_for_pid + thread_create_running）在 macOS 27 上已不可行：
+    /// 内核对平台签名进程（Dock）的线程入口 PC 做 PAC 校验，外部进程无法伪造
+    ///（见 /tmp/pac_probe /tmp/injector 实验与 DiagnosticReports/Dock-*.ips）。
+    /// C 端 inject.c 的 PIC 签名 stub 保留作为历史参考，不再被调用。
+    ///
+    /// `--load-sa` 默认 dry-run；`--load-sa --force` 才实际执行。
     @discardableResult
     static func load(force: Bool) -> Bool {
         let p = checkPreconditions()
         guard p.isRoot else {
-            Log.error("注入需要 root：请用 sudo 运行 --load-sa")
+            Log.error("安装需要 root：请用 sudo 运行 --load-sa")
             return false
         }
-        guard let dock = p.dockPID else {
-            Log.error("未找到 Dock 进程")
-            return false
-        }
-        if !p.sipLikelyDisabled || !p.bootArgSet {
-            Log.warn("SIP 似乎未部分关闭或 boot-arg 未设置，task_for_pid 很可能失败。见 docs/COMPOSITOR-SETUP.md")
+        if !p.sipLikelyDisabled {
+            Log.warn("SIP 似乎未关闭，写入 /Library/ScriptingAdditions 会失败。见 docs/COMPOSITOR-SETUP.md")
         }
 
-        // 阶段 1：拿 Dock 的 task port（SIP 配置是否到位的真正试金石）
-        var dockTask: task_t = 0
-        let kr = task_for_pid(mach_task_self_, dock, &dockTask)
-        guard kr == KERN_SUCCESS else {
-            Log.error("task_for_pid(Dock=\(dock)) 失败 kr=\(kr)。通常意味着 SIP/boot-arg/entitlement 未就位。")
+        guard let osax = sourceOsaxPath() else {
+            Log.error("找不到 payload osax：\(DockInjectionConstants.payloadBundleName)（先运行 scripts/build-sa.sh）")
             return false
         }
-        Log.info("阶段1 ✓ 取得 Dock task port")
+        Log.info("osax 源：\(osax)")
+        let dest = (DockInjectionConstants.scriptingAdditionsDir as NSString)
+            .appendingPathComponent(DockInjectionConstants.payloadBundleName)
 
-        // 阶段 2：解析 Dock 内的 dlopen 地址（= 本进程 dlopen + 两进程共享缓存 slide 差）
-        guard let localSlide = sharedCacheSlide(task: mach_task_self_),
-              let remoteSlide = sharedCacheSlide(task: dockTask),
-              let localDlopen = localDlopenAddress() else {
-            Log.error("阶段2 ✗ 无法解析共享缓存 slide 或本地 dlopen 地址")
+        let dirWritable = FileManager.default.isWritableFile(atPath: DockInjectionConstants.scriptingAdditionsDir)
+        if !dirWritable {
+            Log.error("无权限写入 \(DockInjectionConstants.scriptingAdditionsDir)（需要 root + SIP 关闭）")
             return false
         }
-        let remoteDlopen = localDlopen &+ (remoteSlide &- localSlide)
-        Log.info(String(format: "阶段2 ✓ dlopen 本地=0x%llx 远程=0x%llx (slide 本地=0x%llx 远程=0x%llx)",
-                        localDlopen, remoteDlopen, localSlide, remoteSlide))
-
-        guard let payloadPath = payloadBundlePath() else {
-            Log.error("找不到 payload：\(DockInjectionConstants.payloadBundleName)（先运行 scripts/build-sa.sh）")
-            return false
-        }
-        Log.info("payload 路径：\(payloadPath)")
 
         if !force {
-            Log.info("dry-run 完成：前置条件与地址解析均就绪。确认无误后用 `--load-sa --force` 实际注入。")
+            Log.info("dry-run 完成：osax 就绪、目录可写。确认后用 `--load-sa --force` 安装并加载进 Dock。")
             return true
         }
 
-        // 阶段 3：分配远程内存，写入 payload 路径 + arm64 bootstrap，起远程线程
-        return injectRemoteThread(task: dockTask, dlopen: remoteDlopen, payloadPath: payloadPath)
+        // 安装：先删旧的（不同签名/架构的旧 payload 会让 dyld 拒绝加载），再拷新的
+        try? FileManager.default.removeItem(atPath: dest)
+        do {
+            try FileManager.default.copyItem(atPath: osax, toPath: dest)
+        } catch {
+            Log.error("拷贝 osax 失败：\(error.localizedDescription)")
+            return false
+        }
+        Log.info("osax 已安装到 \(dest)")
+
+        return activate()
+    }
+
+    /// 把 payload 加载进当前登录用户的 Dock（可在 root 或用户态调用）：
+    /// 用户会话 launchd 里临时设 DYLD_INSERT_LIBRARIES → 重启 Dock → dyld 加载
+    /// payload → 立即清除变量（只影响 Dock，避免其它新启动的 App 被注入）。
+    @discardableResult
+    static func activate() -> Bool {
+        guard let dylib = installedPayloadDylibPath() else {
+            Log.error("payload 未安装：先 `sudo scrollwm --load-sa --force`")
+            return false
+        }
+        Log.info("DYLD 加载路径：\(dylib)")
+
+        let user = ProcessInfo.processInfo.environment["SUDO_USER"] ?? NSUserName()
+        let asUser: (String, [String]) -> Void = { cmd, args in
+            let task = Process()
+            if ProcessInfo.processInfo.environment["SUDO_USER"] != nil {
+                task.executableURL = URL(fileURLWithPath: "/usr/bin/sudo")
+                task.arguments = ["-u", user, cmd] + args
+            } else {
+                task.executableURL = URL(fileURLWithPath: cmd)
+                task.arguments = args
+            }
+            task.standardOutput = FileHandle.nullDevice
+            task.standardError = FileHandle.nullDevice
+            try? task.run()
+            task.waitUntilExit()
+        }
+
+        asUser("/bin/launchctl", ["setenv", "DYLD_INSERT_LIBRARIES", dylib])
+        Log.info("已设置 DYLD_INSERT_LIBRARIES，重启 Dock…")
+        asUser("/usr/bin/killall", ["Dock"])
+        Thread.sleep(forTimeInterval: 1.5)
+        asUser("/bin/launchctl", ["unsetenv", "DYLD_INSERT_LIBRARIES"])
+        Log.info("已清除环境变量。等 Dock 起来后用 `--check-sa` 确认服务注册。")
+        return true
     }
 
     static func unload() {
-        // payload 常驻 Dock；最干净的卸载是重启 Dock（会丢失注入，符合预期）
-        Log.info("卸载：重启 Dock 即可移除 payload。执行 `killall Dock`（Dock 会自动重启）。")
-    }
-
-    // MARK: - 远程线程注入（C 辅助处理 arm64e ptrauth，Swift 只做分配与路径写入）
-
-    private static func injectRemoteThread(task: task_t, dlopen: UInt64, payloadPath: String) -> Bool {
-        let pathBytes = Array(payloadPath.utf8) + [0]
-        let codeWords = 11          // 4+1+4+1+1 条指令（由 C 端生成）
-        let codeSize = codeWords * 4
-        let pathOffset = (codeSize + 15) & ~15
-        let totalSize = pathOffset + pathBytes.count
-
-        var remoteMem: vm_address_t = 0
-        guard vm_allocate(task, &remoteMem, vm_size_t(totalSize), VM_FLAGS_ANYWHERE) == KERN_SUCCESS else {
-            Log.error("阶段3 ✗ vm_allocate 失败")
-            return false
-        }
-        let pathAddr = UInt64(remoteMem) + UInt64(pathOffset)
-
-        // 路径串写入远端（代码由 C 端 vm_write + vm_protect 以避免 Swift ptrauth 问题）
-        let pathOK = pathBytes.withUnsafeBytes { raw in
-            vm_write(task, vm_address_t(pathAddr), vm_offset_t(bitPattern: raw.baseAddress),
-                     mach_msg_type_number_t(raw.count)) == KERN_SUCCESS
-        }
-        guard pathOK else { Log.error("阶段3 ✗ 路径 vm_write 失败"); return false }
-
-        // 带 ptrauth 的线程创建 + 代码保护由 C 完成
-        let kr = scrollwm_create_remote_dlopen_thread(task, remoteMem, vm_size_t(totalSize),
-                                                       dlopen, pathAddr, DockInjectionConstants.rtldNow)
-        guard kr == KERN_SUCCESS else {
-            Log.error("阶段3 ✗ thread_create_running 失败 kr=\(kr) (2=KERN_PROTECTION_FAILURE: 权限/签名问题)")
-            return false
-        }
-        Log.info("阶段3 ✓ 远程线程已启动，payload 应在 Dock 内加载。用 `--check-sa` 确认服务注册。")
-        return true
+        // 移除 osax 并重启 Dock（清理 DYLD 注入只影响当下 Dock；重启后不再加载）
+        let dest = (DockInjectionConstants.scriptingAdditionsDir as NSString)
+            .appendingPathComponent(DockInjectionConstants.payloadBundleName)
+        try? FileManager.default.removeItem(atPath: dest)
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/usr/bin/killall")
+        task.arguments = ["Dock"]
+        try? task.run()
+        task.waitUntilExit()
+        Log.info("已移除 osax 并重启 Dock（合成器后端将回退 AX）")
     }
 
     // MARK: - 环境探测
@@ -185,61 +205,52 @@ enum SAInjector {
         return String(data: data, encoding: .utf8) ?? ""
     }
 
-    private static func localDlopenAddress() -> UInt64? {
-        guard let sym = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "dlopen") else { return nil }
-        // arm64e: 高位是 PAC 签名，Swift 没有 ptrauth_strip，只能按 VA 位宽截断
-        // 使用 T1SZ 感知：高 16 位清零，低 48 位保留（比 40 更保守，避免误截）
-        let raw = UInt64(UInt(bitPattern: sym))
-        return raw & 0x000000FFFFFFFFFF // 40-bit VA，去掉 PAC 占用的高位（实测 0x800.../0xc4 均在 40 位外）
+    // MARK: - osax（备路径）
+
+    /// 已安装到 /Library/ScriptingAdditions 的 osax（用于自检）
+    private static func installedOsaxPath() -> String? {
+        let path = (DockInjectionConstants.scriptingAdditionsDir as NSString)
+            .appendingPathComponent(DockInjectionConstants.payloadBundleName)
+        return FileManager.default.fileExists(atPath: path) ? path : nil
     }
 
-    /// 读取指定 task 的 dyld 共享缓存 slide
-    private static func sharedCacheSlide(task: task_t) -> UInt64? {
-        var info = task_dyld_info_data_t()
-        var count = mach_msg_type_number_t(MemoryLayout<task_dyld_info_data_t>.size / MemoryLayout<natural_t>.size)
-        let kr = withUnsafeMutablePointer(to: &info) { ptr -> kern_return_t in
-            ptr.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { intptr in
-                task_info(task, task_flavor_t(TASK_DYLD_INFO), intptr, &count)
-            }
-        }
-        guard kr == KERN_SUCCESS, info.all_image_info_addr != 0 else { return nil }
-
-        // 从 dyld_all_image_infos 读 sharedCacheSlide。对本进程与 Dock 用**同一偏移**
-        // 读取，remote dlopen = local dlopen + (远程 slide - 本地 slide)：只要偏移在两个
-        // 进程里指向同一字段，差值即为真实 slide 差，无需该偏移绝对正确。
-        // 偏移随 macOS 版本可能变化，bring-up 时用日志核对 kSharedCacheSlideOffset。
-        return readSharedCacheSlide(task: task, allImageInfoAddr: info.all_image_info_addr)
-    }
-
-    /// dyld_all_image_infos.sharedCacheSlide 的字段偏移（经 offsetof 实测 152 = 0x98）
-    private static let kSharedCacheSlideOffset: mach_vm_address_t = 152
-
-    private static func readSharedCacheSlide(task: task_t, allImageInfoAddr: mach_vm_address_t) -> UInt64? {
-        var value: UInt64 = 0
-        var outSize: mach_vm_size_t = 0
-        let kr = withUnsafeMutablePointer(to: &value) { ptr -> kern_return_t in
-            mach_vm_read_overwrite(task, allImageInfoAddr + kSharedCacheSlideOffset,
-                                   mach_vm_size_t(MemoryLayout<UInt64>.size),
-                                   mach_vm_address_t(UInt(bitPattern: ptr)), &outSize)
-        }
-        guard kr == KERN_SUCCESS else { return nil }
-        return value
-    }
-
-    private static func payloadBundlePath() -> String? {
+    /// 待安装的 osax：优先 App 内 Resources，其次 cwd 的 dist
+    private static func sourceOsaxPath() -> String? {
         let name = DockInjectionConstants.payloadBundleName
-        let candidates = [
+        let candidates: [String?] = [
             Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/\(name)").path,
-            Bundle.main.bundleURL.deletingLastPathComponent().appendingPathComponent(name).path,
             FileManager.default.currentDirectoryPath + "/dist/\(name)",
-            FileManager.default.currentDirectoryPath + "/.build/\(name)",
+            installedOsaxPath(),
         ]
-        guard let base = candidates.first(where: { FileManager.default.fileExists(atPath: $0) }) else { return nil }
-        // dlopen 需要指向 Mach-O 文件本身，而不是 .bundle 目录
-        if base.hasSuffix(".bundle") {
-            let exec = (base as NSString).appendingPathComponent("Contents/MacOS/ScrollWMSA")
-            if FileManager.default.fileExists(atPath: exec) { return exec }
+        return candidates.compactMap { $0 }.first {
+            let exec = ($0 as NSString).appendingPathComponent("Contents/MacOS/\(DockInjectionConstants.payloadExecutableName)")
+            return FileManager.default.fileExists(atPath: exec)
         }
-        return base
+    }
+
+    /// 已安装 payload 的 Mach-O dylib（DYLD_INSERT_LIBRARIES 用）
+    private static func installedPayloadDylibPath() -> String? {
+        guard let osax = installedOsaxPath() else { return nil }
+        let exec = (osax as NSString).appendingPathComponent("Contents/MacOS/\(DockInjectionConstants.payloadExecutableName)")
+        return FileManager.default.fileExists(atPath: exec) ? exec : nil
+    }
+
+    // MARK: - 自动加载状态
+
+    private static let autoLoadKey = "scrollwm.compositor.autoloaded"
+    private static let autoLoadDateKey = "scrollwm.compositor.autoloaded.date"
+
+    /// osax 是否已安装到 /Library/ScriptingAdditions（WindowManager 自动加载用）
+    static func installedOsaxPresent() -> Bool {
+        installedOsaxPath() != nil
+    }
+
+    /// 本次登录是否已经尝试过自动加载（避免每次重载配置都重启 Dock）
+    static func isAutoLoadingCompositor() -> Bool {
+        UserDefaults.standard.bool(forKey: autoLoadKey)
+    }
+
+    static func markAutoLoadingCompositor() {
+        UserDefaults.standard.set(true, forKey: autoLoadKey)
     }
 }
