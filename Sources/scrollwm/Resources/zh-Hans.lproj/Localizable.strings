@@ -93,10 +93,6 @@
 "settings.ring.borderWidth" = "边框宽度";
 "settings.ring.glow" = "外发光";
 
-/* 合成器 */
-"settings.compositor.enabled" = "启用 SkyLight 合成器";
-"settings.compositor.note" = "需部分关闭 SIP 并注入 Dock，否则自动回退。见 docs/COMPOSITOR-SETUP.md。";
-
 /* 忽略的应用 */
 "settings.apps.title" = "忽略的应用";
 "settings.apps.subtitle" = "这些应用保持系统默认窗口，不被平铺";
@@ -167,7 +163,6 @@
 "config.animation.easing" = "mode = \"easing\" 时使用";
 "config.animation.highFrameRate" = "实验性：动画锁定屏幕最大刷新率（如 120Hz），可能明显增加耗电";
 "config.ring.alwaysOn" = "在后台也显示焦点环：切到其他 App 时仍高亮当前纸带焦点列";
-"config.compositor.note" = "合成器级动画需关 SIP 并注入 Dock，见 docs/COMPOSITOR-SETUP.md";
 "config.apps.ignore" = "不接管的 App（bundle id）";
 "config.apps.example" = "示例：ignore = [\"com.apple.systempreferences\"]";
 "config.bindings.format" = "键位格式：\"修饰键-...-键名\" = \"动作\"；要解绑某项，把值改成 \"none\"";

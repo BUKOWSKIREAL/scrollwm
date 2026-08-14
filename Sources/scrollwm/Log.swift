@@ -41,7 +41,7 @@ enum Log {
     static func info(_ message: String) { emit("INFO ", message) }
     static func warn(_ message: String) { emit("WARN ", message) }
     static func error(_ message: String) { emit("ERROR", message) }
-    static func debug(_ message: String) {
-        if debugEnabled { emit("DEBUG", message) }
+    static func debug(_ message: @autoclosure () -> String) {
+        if debugEnabled { emit("DEBUG", message()) }
     }
 }

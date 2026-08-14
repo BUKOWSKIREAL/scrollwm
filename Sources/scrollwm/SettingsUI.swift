@@ -501,11 +501,6 @@ private struct GeneralTab: View {
                         .frame(maxWidth: 240, alignment: .leading)
                     }
 
-                    Divider().padding(.vertical, 4)
-
-                    Toggle(L10n.text("settings.compositor.enabled"), isOn: model.binding(\.compositorEnabled))
-                    Text(L10n.text("settings.compositor.note"))
-                        .font(AppFonts.caption).foregroundStyle(.secondary)
                 }
                 .font(AppFonts.subheadline)
             }

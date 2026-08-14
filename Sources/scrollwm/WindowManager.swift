@@ -60,13 +60,9 @@ final class WindowManager {
     /// 必须挂在 `.eventTracking`：标题栏拖动时系统进入 tracking loop，default 模式收不到 dragged。
     private var commandDragPoll: Timer?
 
-    // 帧动画器（也承担 per-App 并行写队列与"当前帧"缓存）
+    // 动画始终走 AX。
     private let animator = FrameAnimator()
     private let focusRing = FocusRingController()
-
-    // 合成器后端（SkyLight）。仅当 payload 已注入 Dock 且配置开启时启用，
-    // 否则动画走 AX（batchSink 为 nil）。
-    private let compositor = CompositorMover()
 
     // 去抖
     private var retileWork: DispatchWorkItem?
@@ -239,7 +235,6 @@ final class WindowManager {
         for app in NSWorkspace.shared.runningApplications {
             adoptApp(app)
         }
-        refreshCompositorBackend()
         reconcile()
         didFinishStartup = true
         // 若恰好在 Mission Control/锁屏状态启动，optionOnScreenOnly 会暂时返回空集合；
@@ -293,33 +288,6 @@ final class WindowManager {
             return inferred
         }
         return config.defaultWidth
-    }
-
-    /// 根据配置与 payload 可用性，决定动画走合成器还是 AX
-    private func refreshCompositorBackend() {
-        if config.compositorEnabled, compositor.connect() {
-            animator.batchSink = { [weak self] frames, settle in
-                self?.compositor.apply(
-                    frames.map { ($0.id, $0.rect, Float(1.0)) }, settle: settle
-                )
-            }
-            Log.info("动画后端：合成器（SkyLight，payload 已连接）")
-        } else {
-            animator.batchSink = nil
-            if config.compositorEnabled {
-                Log.warn("已开启合成器但 payload 未连接，回退 AX。见 docs/COMPOSITOR-SETUP.md")
-                // 登录后首次运行时 Dock 里没有 payload：临时 DYLD 注入 + 重启 Dock
-                // 自动加载，几秒后重试连接（SIP 关闭 + osax 已安装才可行）。
-                if SAInjector.installedOsaxPresent(), !SAInjector.isAutoLoadingCompositor() {
-                    SAInjector.markAutoLoadingCompositor()
-                    Log.info("尝试自动加载合成器 payload 到 Dock…")
-                    SAInjector.activate()
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 6) { [weak self] in
-                        self?.refreshCompositorBackend()
-                    }
-                }
-            }
-        }
     }
 
     // MARK: - App 收编
@@ -1129,6 +1097,10 @@ final class WindowManager {
         }
         windows.removeValue(forKey: id)
         stickyUntil.removeValue(forKey: id)
+        zoomCandidateUntil.removeValue(forKey: id)
+        settleWork[id]?.cancel()
+        settleWork.removeValue(forKey: id)
+        if lastTitleClick?.id == id { lastTitleClick = nil }
         restoredQuietUntil.removeValue(forKey: id)
         pendingInstantPlace.remove(id)
         layoutFrames.removeValue(forKey: id)
@@ -1179,7 +1151,8 @@ final class WindowManager {
         if commandDrag?.id == id { return }
         if isRestoredQuiet(id) { return }
 
-        if let frame = window.frame(), isFullscreenFocusRingCandidate(window, frame: frame) {
+        let observedFrame = window.frame()
+        if let frame = observedFrame, isFullscreenFocusRingCandidate(window, frame: frame) {
             suppressFocusRingForFullscreen(id)
         }
 
@@ -1194,7 +1167,7 @@ final class WindowManager {
             return
         }
 
-        guard let current = window.frame() else { return }
+        guard let current = observedFrame else { return }
 
         // 动画/回声：接近我们下发的帧才吞掉。尺寸骤变是系统 zoom，不是回声。
         if animator.hasTarget(for: id) {
@@ -1204,7 +1177,7 @@ final class WindowManager {
             // 刚改列宽时窗口还停在旧尺寸，和目标差很大是正常的；真正的系统铺满另算。
             if let pending = pendingFrames[id],
                CACurrentMediaTime() - pending.timestamp < 1.0,
-               !fillsTilingViewport(window) {
+               !fillsTilingViewport(current) {
                 return
             }
             animator.cancelAnimation(for: id)
@@ -1215,7 +1188,7 @@ final class WindowManager {
                 pendingFrames.removeValue(forKey: id)
                 return
             }
-            if CACurrentMediaTime() - pending.timestamp < 1.0, !fillsTilingViewport(window) {
+            if CACurrentMediaTime() - pending.timestamp < 1.0, !fillsTilingViewport(current) {
                 return
             }
             pendingFrames.removeValue(forKey: id)
@@ -1384,8 +1357,12 @@ final class WindowManager {
     }
 
     private func fillsTilingViewport(_ window: AXWindow) -> Bool {
-        guard let frame = window.frame(),
-              let ns = ScreenGeometry.screen(containingAX: frame) ?? layoutScreen()
+        guard let frame = window.frame() else { return false }
+        return fillsTilingViewport(frame)
+    }
+
+    private func fillsTilingViewport(_ frame: CGRect) -> Bool {
+        guard let ns = ScreenGeometry.screen(containingAX: frame) ?? layoutScreen()
         else { return false }
         let visible = ScreenGeometry.axVisible(of: ns)
         let viewport = LayoutEngine.viewport(screen: visible, spec: spec)
@@ -1407,6 +1384,14 @@ final class WindowManager {
     }
 
     private func handleMouse(_ event: NSEvent) {
+        if paused {
+            // 暂停时不做全局点击命中检测；仅保留一次 mouse-up 来收尾已开始的交互。
+            if event.type == .leftMouseUp {
+                if commandDrag != nil { finishCommandDrag() }
+                else if !externallyTouched.isEmpty { mouseDidRelease() }
+            }
+            return
+        }
         switch event.type {
         case .leftMouseDown:
             if commandModifierHeld(on: event) {
@@ -1501,6 +1486,7 @@ final class WindowManager {
             !floating.contains(id) && windows[id]?.frame()?.insetBy(dx: -8, dy: -8).contains(point) == true
         }
         guard !candidates.isEmpty else { return nil }
+        let candidateSet = Set(candidates)
 
         if let info = CGWindowListCopyWindowInfo(
             [.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID
@@ -1510,7 +1496,7 @@ final class WindowManager {
                 guard let layer = entry[kCGWindowLayer as String] as? Int, layer == 0,
                       let number = entry[kCGWindowNumber as String] as? UInt32
                 else { continue }
-                if candidates.contains(number) { return number }
+                if candidateSet.contains(number) { return number }
                 if windows[number] != nil, !strip.contains(number) { continue }
                 if let pid = entry[kCGWindowOwnerPID as String] as? pid_t,
                    let match = candidates.first(where: { windows[$0]?.pid == pid })
@@ -1968,7 +1954,7 @@ final class WindowManager {
         refreshFocusRing()
         window.raise()
         if let app = NSRunningApplication(processIdentifier: window.pid) {
-            app.activate(options: [])
+            app.activate(from: NSRunningApplication.current)
         }
     }
 
@@ -2022,9 +2008,6 @@ final class WindowManager {
             || old.focusRingGlowRadius != newConfig.focusRingGlowRadius
             || old.focusRingAlwaysOn != newConfig.focusRingAlwaysOn {
             configureFocusRing(from: newConfig)
-        }
-        if old.compositorEnabled != newConfig.compositorEnabled {
-            refreshCompositorBackend()
         }
         guard !paused else { return }
         if old.ignoreBundleIDs != newConfig.ignoreBundleIDs {

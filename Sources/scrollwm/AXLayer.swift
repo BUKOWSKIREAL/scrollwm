@@ -57,17 +57,39 @@ final class AXWindow {
     // MARK: 几何
 
     func frame() -> CGRect? {
+        let attributes = [kAXPositionAttribute, kAXSizeAttribute] as CFArray
+        var values: CFArray?
+        let batchError = AXUIElementCopyMultipleAttributeValues(
+            element,
+            attributes,
+            AXCopyMultipleAttributeOptions(rawValue: 0),
+            &values
+        )
+        if batchError == .success,
+           let pair = values as? [AXValue], pair.count == 2,
+           let frame = frame(position: pair[0], size: pair[1]) {
+            return frame
+        }
+        guard batchError == .success || batchError == .notImplemented
+                || batchError == .attributeUnsupported
+        else { return nil }
+
+        // 少数 App 不支持批量读取，保留逐属性调用作为兼容回退。
         guard let posRef = copyAttribute(kAXPositionAttribute),
               let sizeRef = copyAttribute(kAXSizeAttribute),
               CFGetTypeID(posRef) == AXValueGetTypeID(),
               CFGetTypeID(sizeRef) == AXValueGetTypeID()
         else { return nil }
+        return frame(position: posRef as! AXValue, size: sizeRef as! AXValue)
+    }
+
+    private func frame(position: AXValue, size: AXValue) -> CGRect? {
         var origin = CGPoint.zero
-        var size = CGSize.zero
-        guard AXValueGetValue(posRef as! AXValue, .cgPoint, &origin),
-              AXValueGetValue(sizeRef as! AXValue, .cgSize, &size)
+        var dimensions = CGSize.zero
+        guard AXValueGetValue(position, .cgPoint, &origin),
+              AXValueGetValue(size, .cgSize, &dimensions)
         else { return nil }
-        return CGRect(origin: origin, size: size)
+        return CGRect(origin: origin, size: dimensions)
     }
 
     /// 纯平移专用：单次 RPC，动画热路径

@@ -11,13 +11,10 @@ let package = Package(
     targets: [
         // 布局引擎：纯逻辑，无 AppKit 依赖，可单元测试
         .target(name: "ScrollCore"),
-        // 合成器 mach 客户端（C，规避 Swift 无法导入的函数式 mach 宏）
-        .target(name: "CClient"),
         .executableTarget(
             name: "scrollwm",
             dependencies: [
                 "ScrollCore",
-                "CClient",
                 .product(name: "TOMLKit", package: "TOMLKit"),
             ],
             resources: [.process("Resources")]

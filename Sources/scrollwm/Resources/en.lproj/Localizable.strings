@@ -93,10 +93,6 @@
 "settings.ring.borderWidth" = "Border Width";
 "settings.ring.glow" = "Glow Radius";
 
-/* Compositor */
-"settings.compositor.enabled" = "Enable SkyLight Compositor";
-"settings.compositor.note" = "Requires partially disabling SIP and injecting into Dock, otherwise it falls back automatically. See docs/COMPOSITOR-SETUP.md.";
-
 /* Ignored apps */
 "settings.apps.title" = "Ignored Apps";
 "settings.apps.subtitle" = "These apps keep their system-default windows and are not tiled";
@@ -167,7 +163,6 @@
 "config.animation.easing" = "used when mode = \"easing\"";
 "config.animation.highFrameRate" = "experimental: lock animation to the screen's max refresh rate (e.g. 120Hz); may noticeably increase power draw";
 "config.ring.alwaysOn" = "show the focus ring in the background: highlight the focused column even when another app is active";
-"config.compositor.note" = "compositor-level animation requires disabling SIP and injecting into Dock; see docs/COMPOSITOR-SETUP.md";
 "config.apps.ignore" = "apps to leave alone (bundle ids)";
 "config.apps.example" = "example: ignore = [\"com.apple.systempreferences\"]";
 "config.bindings.format" = "binding format: \"modifier-...-key\" = \"action\"; set the value to \"none\" to unbind";

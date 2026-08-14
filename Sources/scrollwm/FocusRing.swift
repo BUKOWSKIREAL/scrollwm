@@ -9,7 +9,7 @@ import QuartzCore
 /// 窗口矩形走 AX / 布局的点坐标（`primaryMaxY`），不要用 `CGDisplayBounds`
 /// 再缩一次：那会把点坐标当成像素，外接屏上整框错位。
 final class FocusRingController {
-    private let panel: NSPanel
+    private let panel: FocusRingPanel
     private let ringView: FocusRingView
     private var enabled = true
     private var alwaysOn = false
@@ -24,7 +24,7 @@ final class FocusRingController {
 
     init() {
         ringView = FocusRingView(frame: .zero)
-        panel = NSPanel(
+        panel = FocusRingPanel(
             contentRect: .zero,
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
@@ -36,6 +36,7 @@ final class FocusRingController {
         panel.hasShadow = false
         panel.ignoresMouseEvents = true
         panel.hidesOnDeactivate = false
+        panel.becomesKeyOnlyIfNeeded = true
         panel.sharingType = .none
         // 比普通窗口高一级：点击提窗不会把亮边盖住，也就不必再 order 回去（那一下就是闪）。
         // 仍低于 .floating / 菜单 / 保存框，那些弹层会从透明区域透出来，或走 hide。
@@ -48,12 +49,24 @@ final class FocusRingController {
         panel.minSize = .zero
         panel.maxSize = NSSize(width: 20000, height: 20000)
 
-        foregroundGuard = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
-            guard let self, self.panel.isVisible else {
+    }
+
+    deinit {
+        stopForegroundGuard()
+    }
+
+    private func updateForegroundGuard() {
+        guard panel.isVisible, !alwaysOn else {
+            stopForegroundGuard()
+            return
+        }
+        guard foregroundGuard == nil else { return }
+        let timer = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in
+            guard let self, self.panel.isVisible, !self.alwaysOn else {
                 self?.frontmostMismatchTicks = 0
+                self?.stopForegroundGuard()
                 return
             }
-            if self.alwaysOn { return }
             if CACurrentMediaTime() < self.frontmostGraceUntil {
                 self.frontmostMismatchTicks = 0
                 return
@@ -71,6 +84,13 @@ final class FocusRingController {
                 self.hide()
             }
         }
+        foregroundGuard = timer
+        RunLoop.main.add(timer, forMode: .default)
+    }
+
+    private func stopForegroundGuard() {
+        foregroundGuard?.invalidate()
+        foregroundGuard = nil
     }
 
     /// 键盘/点击切焦点后，忽略短暂的 frontmost 滞后。
@@ -88,6 +108,7 @@ final class FocusRingController {
         } else if !enabled {
             hide()
         }
+        updateForegroundGuard()
     }
 
     /// `axFrame` 必须是 Accessibility / 布局空间（主屏顶左、点）。
@@ -116,13 +137,17 @@ final class FocusRingController {
             return
         }
         if !alwaysOn,
+           !panel.isVisible,
            NSWorkspace.shared.frontmostApplication?.processIdentifier != pid,
-           CACurrentMediaTime() >= frontmostGraceUntil,
-           !panel.isVisible {
+           CACurrentMediaTime() >= frontmostGraceUntil {
             return
         }
-        guard let screen = ScreenGeometry.screen(containingWindowID: windowID)
-                ?? ScreenGeometry.screen(containingAX: axFrame)
+        let axScreen = ScreenGeometry.screen(containingAX: axFrame)
+        let cachedScreenIsValid = !targetChanged
+            && axScreen.map(ScreenGeometry.displayID) == attachedScreenID
+        guard let screen = (cachedScreenIsValid ? axScreen : nil)
+                ?? ScreenGeometry.screen(containingWindowID: windowID)
+                ?? axScreen
         else {
             if !alreadyShowing { hidePanelOnly() }
             return
@@ -161,6 +186,7 @@ final class FocusRingController {
         if !panel.isVisible {
             panel.alphaValue = 1
             panel.orderFrontRegardless()
+            updateForegroundGuard()
         }
     }
 
@@ -190,8 +216,15 @@ final class FocusRingController {
     }
 
     private func hidePanelOnly() {
+        stopForegroundGuard()
         if panel.isVisible { panel.orderOut(nil) }
     }
+}
+
+/// 全屏亮边不能成为 key，否则点其他窗口/快捷键切列时激活会被 overlay 抢走。
+private final class FocusRingPanel: NSPanel {
+    override var canBecomeKey: Bool { false }
+    override var canBecomeMain: Bool { false }
 }
 
 private final class FocusRingView: NSView {
@@ -205,6 +238,7 @@ private final class FocusRingView: NSView {
     /// 相对本 view（铺满那块屏）的窗口矩形，AppKit 底左。
     private var windowRect: CGRect = .zero
     private var cornerRadius: CGFloat = 10
+    private var contentsScale: CGFloat = 0
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -215,7 +249,8 @@ private final class FocusRingView: NSView {
         glowLayer.borderColor = NSColor(calibratedRed: 0.30, green: 0.25, blue: 0.70, alpha: 0.55).cgColor
         glowLayer.shadowColor = NSColor(calibratedRed: 0.24, green: 0.36, blue: 0.72, alpha: 1).cgColor
         glowLayer.shadowOpacity = 0.38
-        glowLayer.masksToBounds = false
+        glowLayer.shadowOffset = .zero
+        configureRingLayer(glowLayer)
         layer?.addSublayer(glowLayer)
 
         gradientLayer.colors = [
@@ -227,17 +262,23 @@ private final class FocusRingView: NSView {
         gradientLayer.locations = [0, 0.38, 0.72, 1]
         gradientLayer.startPoint = CGPoint(x: 0, y: 0)
         gradientLayer.endPoint = CGPoint(x: 1, y: 1)
+        gradientMask.borderColor = NSColor.white.cgColor
+        configureRingLayer(gradientMask)
         gradientLayer.mask = gradientMask
         layer?.addSublayer(gradientLayer)
 
         highlightLayer.backgroundColor = NSColor.clear.cgColor
         highlightLayer.borderColor = NSColor.white.withAlphaComponent(0.12).cgColor
-        highlightLayer.masksToBounds = false
+        configureRingLayer(highlightLayer)
         layer?.addSublayer(highlightLayer)
     }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
     }
 
     override func layout() {
@@ -253,6 +294,8 @@ private final class FocusRingView: NSView {
 
     func syncContentsScale(from window: NSWindow?) {
         let scale = window?.backingScaleFactor ?? 1
+        guard abs(contentsScale - scale) > 0.01 else { return }
+        contentsScale = scale
         layer?.contentsScale = scale
         glowLayer.contentsScale = scale
         gradientLayer.contentsScale = scale
@@ -261,8 +304,11 @@ private final class FocusRingView: NSView {
     }
 
     func configure(width: CGFloat, glowRadius: CGFloat) {
-        ringWidth = width.clamped(1, 8)
-        self.glowRadius = glowRadius.clamped(0, 24)
+        let nextWidth = width.clamped(1, 8)
+        let nextGlowRadius = glowRadius.clamped(0, 24)
+        guard ringWidth != nextWidth || self.glowRadius != nextGlowRadius else { return }
+        ringWidth = nextWidth
+        self.glowRadius = nextGlowRadius
         updateLayers()
     }
 
@@ -288,12 +334,9 @@ private final class FocusRingView: NSView {
 
         applyRingStyle(glowLayer, frame: windowRect, radius: radius, borderWidth: ringWidth)
         glowLayer.shadowRadius = glowRadius
-        glowLayer.shadowOffset = .zero
-        glowLayer.shadowPath = nil
 
-        gradientLayer.frame = bounds
+        if gradientLayer.frame != bounds { gradientLayer.frame = bounds }
         applyRingStyle(gradientMask, frame: windowRect, radius: radius, borderWidth: ringWidth)
-        gradientMask.borderColor = NSColor.white.cgColor
 
         applyRingStyle(
             highlightLayer,
@@ -305,14 +348,17 @@ private final class FocusRingView: NSView {
         CATransaction.commit()
     }
 
-    private func applyRingStyle(_ layer: CALayer, frame: CGRect, radius: CGFloat, borderWidth: CGFloat) {
-        layer.frame = frame
+    private func configureRingLayer(_ layer: CALayer) {
         layer.backgroundColor = NSColor.clear.cgColor
-        layer.borderWidth = borderWidth
-        layer.cornerRadius = radius
         // 系统窗口圆角是普通圆弧；.continuous 会更鼓，四角对不齐。
         layer.cornerCurve = .circular
         layer.masksToBounds = false
         layer.allowsEdgeAntialiasing = true
+    }
+
+    private func applyRingStyle(_ layer: CALayer, frame: CGRect, radius: CGFloat, borderWidth: CGFloat) {
+        layer.frame = frame
+        layer.borderWidth = borderWidth
+        layer.cornerRadius = radius
     }
 }

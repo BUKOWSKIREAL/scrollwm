@@ -55,9 +55,6 @@ final class FrameAnimator {
     /// AX 实际接受的 frame 与请求不一致（通常是 App 最小宽度钳制）时回调布局层。
     var onConstrainedFrame: ((CGWindowID, CGRect) -> Void)?
 
-    /// 可选合成器批量通道；为 nil 时走 AX。
-    var batchSink: (([(id: CGWindowID, rect: CGRect)], Bool) -> Void)?
-
     /// 视口动画：每 tick 由布局引擎给出整条纸带的帧，窗口保持相对位置。
     var onLayoutSample: ((_ elapsed: TimeInterval, _ isFinal: Bool) -> [(window: AXWindow, rect: CGRect)])?
 
@@ -77,6 +74,7 @@ final class FrameAnimator {
     private let linkTarget = DisplayLinkProxy()
     private var startTime: CFTimeInterval = 0
     private var transitions: [ActiveTransition] = []
+    private var maxTransitionDuration: TimeInterval = 0
     private var appQueues: [pid_t: DispatchQueue] = [:]
     private var inFlight: Set<CGWindowID> = []
     /// AX 实际接受的窗口尺寸。部分 App 会按最小尺寸钳制 setSize，不能假设请求值即实际值。
@@ -278,6 +276,7 @@ final class FrameAnimator {
         }
 
         transitions = prepared
+        maxTransitionDuration = prepared.reduce(0) { max($0, $1.duration) }
         currentTargets = newTargets
         startTime = now
 
@@ -291,6 +290,7 @@ final class FrameAnimator {
     func cancel() {
         stopDisplayLink()
         transitions = []
+        maxTransitionDuration = 0
         currentTargets = [:]
         isLayoutAnimating = false
         layoutDuration = 0
@@ -301,6 +301,7 @@ final class FrameAnimator {
         currentTargets.removeValue(forKey: id)
         inFlight.remove(id)
         transitions.removeAll { $0.window.windowID == id }
+        maxTransitionDuration = transitions.reduce(0) { max($0, $1.duration) }
         if isLayoutAnimating {
             if currentTargets.isEmpty { finish() }
             return
@@ -371,22 +372,7 @@ final class FrameAnimator {
         }
 
         let elapsed = max(0, now - startTime)
-        let isFinal = transitions.allSatisfy { elapsed >= $0.duration }
-
-        if let sink = batchSink {
-            var batch: [(id: CGWindowID, rect: CGRect)] = []
-            batch.reserveCapacity(transitions.count)
-            for transition in transitions {
-                let rect = isFinal ? transition.to : transition.frame(at: elapsed, curve: curve)
-                lastSent[transition.window.windowID] = rect
-                onWrite?(transition.window.windowID, rect)
-                onVisualFrame?(transition.window.windowID, visualFrame(rect, for: transition.window.windowID))
-                batch.append((transition.window.windowID, rect))
-            }
-            sink(batch, isFinal)
-            if isFinal { finish() }
-            return
-        }
+        let isFinal = elapsed >= maxTransitionDuration
 
         for transition in transitions {
             let id = transition.window.windowID
@@ -434,31 +420,18 @@ final class FrameAnimator {
         }
         let elapsed = max(0, now - startTime)
         let isFinal = layoutDuration <= 0 || elapsed >= layoutDuration
-        let frames = sample(elapsed, isFinal).filter { currentTargets[$0.window.windowID] != nil }
+        let frames = sample(elapsed, isFinal)
 
-        if let sink = batchSink {
-            var batch: [(id: CGWindowID, rect: CGRect)] = []
-            batch.reserveCapacity(frames.count)
-            for (window, rect) in frames {
-                let id = window.windowID
-                lastSent[id] = rect
-                presentedSizes[id] = rect.size
-                onWrite?(id, rect)
-                onVisualFrame?(id, visualFrame(rect, for: id))
-                batch.append((id, rect))
-            }
-            if !batch.isEmpty { sink(batch, isFinal) }
-            if isFinal { finish() }
-            return
-        }
-
-        // AX 路径：任一窗口还在飞行则整帧停写，避免纸带被拆开。
-        if !isFinal, frames.contains(where: { inFlight.contains($0.window.windowID) }) {
+        // AX 路径：任一仍在当前动画中的窗口还在飞行则整帧停写，避免纸带被拆开。
+        if !isFinal, frames.contains(where: {
+            currentTargets[$0.window.windowID] != nil && inFlight.contains($0.window.windowID)
+        }) {
             return
         }
 
         for (window, rect) in frames {
             let id = window.windowID
+            guard currentTargets[id] != nil else { continue }
             if isFinal {
                 lastSent[id] = rect
                 presentedSizes[id] = rect.size
@@ -497,6 +470,7 @@ final class FrameAnimator {
     private func finish() {
         stopDisplayLink()
         transitions = []
+        maxTransitionDuration = 0
         currentTargets = [:]
         isLayoutAnimating = false
         layoutDuration = 0
@@ -558,6 +532,7 @@ final class FrameAnimator {
         presentedSizes.removeValue(forKey: id)
         dragPending.removeValue(forKey: id)
         transitions.removeAll { $0.window.windowID == id }
+        maxTransitionDuration = transitions.reduce(0) { max($0, $1.duration) }
     }
 }
 

@@ -63,7 +63,6 @@ struct Config: Equatable {
     var focusRingWidth: Double = 3
     var focusRingGlowRadius: Double = 9
     var focusRingAlwaysOn: Bool = false
-    var compositorEnabled: Bool = false
     var ignoreBundleIDs: Set<String> = []
     var bindings: [String: WMAction] = Config.defaultBindings
 
@@ -239,12 +238,6 @@ struct Config: Equatable {
             }
         }
 
-        if let compositor = table["compositor"]?.tomlValue.table {
-            if let enabled = compositor["enabled"]?.tomlValue.bool {
-                config.compositorEnabled = enabled
-            }
-        }
-
         if let apps = table["apps"]?.tomlValue.table,
            let arr = apps["ignore"]?.tomlValue.array {
             config.ignoreBundleIDs = Set(arr.compactMap { $0.tomlValue.string })
@@ -335,9 +328,6 @@ struct Config: Equatable {
         lines.append("width = \(Self.toml(focusRingWidth))")
         lines.append("glow_radius = \(Self.toml(focusRingGlowRadius))")
         lines.append("always_on = \(focusRingAlwaysOn)   # \(L10n.text("config.ring.alwaysOn"))")
-        lines.append("")
-        lines.append("[compositor]")
-        lines.append("enabled = \(compositorEnabled)   # \(L10n.text("config.compositor.note"))")
         lines.append("")
         lines.append("[apps]")
         let ignored = ignoreBundleIDs.sorted().map { "\"\($0)\"" }.joined(separator: ", ")
@@ -456,6 +446,7 @@ final class ConfigWatcher {
     private let path: String
     private let onChange: () -> Void
     private var source: DispatchSourceFileSystemObject?
+    private var retry: DispatchWorkItem?
     private var debounce: DispatchWorkItem?
 
     init(path: String, onChange: @escaping () -> Void) {
@@ -463,12 +454,24 @@ final class ConfigWatcher {
         self.onChange = onChange
     }
 
-    func start() {
+    deinit {
         stop()
+    }
+
+    func start() {
+        source?.cancel()
+        source = nil
+        retry?.cancel()
+        retry = nil
         let fd = open(path, O_EVTONLY)
         guard fd >= 0 else {
             // 文件暂不存在：稍后重试
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in self?.start() }
+            let work = DispatchWorkItem { [weak self] in
+                self?.retry = nil
+                self?.start()
+            }
+            retry = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2, execute: work)
             return
         }
         let src = DispatchSource.makeFileSystemObjectSource(
@@ -493,11 +496,18 @@ final class ConfigWatcher {
     func stop() {
         source?.cancel()
         source = nil
+        retry?.cancel()
+        retry = nil
+        debounce?.cancel()
+        debounce = nil
     }
 
     private func scheduleChange() {
         debounce?.cancel()
-        let work = DispatchWorkItem { [weak self] in self?.onChange() }
+        let work = DispatchWorkItem { [weak self] in
+            self?.debounce = nil
+            self?.onChange()
+        }
         debounce = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: work)
     }

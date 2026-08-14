@@ -91,7 +91,7 @@ The menu bar icon is the escape hatch: pause/resume management, the settings win
 
 ### Settings window
 
-Menu bar → **Settings…** opens a settings window covering every option: layout gaps/widths, animation, focus ring, compositor, ignored apps, keybindings (press-to-record), and **language** (follows the macOS system language by default; English and Simplified Chinese are built in). Changes are written back to `config.toml` immediately and hot-reloaded — there is no Save button. Editing the file by hand remains fully supported, and external edits sync back into the open window. One note: saving from the settings window rewrites the file in canonical form; values are preserved, but custom comments may be replaced by the standard annotations.
+Menu bar → **Settings…** opens a settings window covering every option: layout gaps/widths, animation, focus ring, ignored apps, keybindings (press-to-record), and **language** (follows the macOS system language by default; English and Simplified Chinese are built in). Changes are written back to `config.toml` immediately and hot-reloaded — there is no Save button. Editing the file by hand remains fully supported, and external edits sync back into the open window. One note: saving from the settings window rewrites the file in canonical form; values are preserved, but custom comments may be replaced by the standard annotations.
 
 Manual configuration:
 
@@ -126,10 +126,6 @@ epsilon = 0.0001
 enabled = true
 width = 3          # blue-purple gradient border width (1...8)
 glow_radius = 9    # outer glow radius (0...24)
-
-[compositor]
-enabled = false     # compositor-level animation (SkyLight). Requires SIP off and Dock injection,
-                    # see docs/COMPOSITOR-SETUP.md; falls back to AX when the payload isn't ready
 
 [apps]
 ignore = []         # bundle IDs to leave alone, e.g. ["com.apple.systempreferences"]
@@ -175,7 +171,7 @@ After building, walk through this (TextEdit / Terminal / browser with 5+ windows
 
 ## How the animation works
 
-AX APIs have no native animation (true compositor animation would require disabling SIP and injecting; this project doesn't do that), so animation is driven by 60Hz easing interpolation, with a few key engineering choices for smoothness:
+AX APIs have no native animation, so animation is driven by 60Hz easing interpolation, with a few key engineering choices for smoothness:
 
 - Writes go through **per-app parallel serial queues**: apps animate concurrently, so the tick cost is the slowest app, not the sum
 - Pure moves send only `setPosition` (1 RPC), avoiding `setFrame`'s triple calls
@@ -184,12 +180,6 @@ AX APIs have no native animation (true compositor animation would require disabl
 - The final frame is forced to land exactly; bulk reconciliations (startup / Space switch) apply instantly
 
 Apps that are slow to re-layout (browsers, Electron) naturally animate at lower frame rates than lightweight apps — expected behavior; disable animation in config `[animation]` if you don't like it.
-
-### Compositor-level animation (optional, requires SIP off)
-
-If you want niri-grade buttery animation, there's the SkyLight compositor path: partially disable SIP, inject a payload into `Dock.app`, and use Dock's privileged connection to move windows atomically in a single `SLSTransaction` — all windows move in the same frame, completely eliminating AX's window-by-window stutter.
-
-Please read [docs/COMPOSITOR-SETUP.md](docs/COMPOSITOR-SETUP.md) for the costs and prerequisites first: permanently reduced system security, likely re-reverse-engineering after every macOS major update, and you must disable SIP in Recovery Mode yourself. Relevant commands: `scrollwm --check-sa`, `sudo scrollwm --load-sa [--force]`. It falls back to AX animation when the payload isn't ready; normal use is unaffected.
 
 ## Known limitations
 

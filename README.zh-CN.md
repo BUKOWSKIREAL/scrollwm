@@ -96,7 +96,7 @@ Alt(Option) 为默认 Mod 键，全部可在配置中改：
 
 ### 设置窗口
 
-菜单栏 → **设置…** 打开设置窗口，覆盖全部配置项：布局间距/列宽、动画、焦点环、合成器、忽略的 App、快捷键（按下即录入）、**语言**（默认跟随 macOS 系统语言，内置简体中文与英文）。改动即时写回 `config.toml` 并热重载生效，没有"保存"按钮；手改配置文件依然完全支持，外部改动会同步回开着的窗口。注意：从设置窗口保存会按规范格式重写整个文件，值全部保留，但你手写的注释可能被替换为默认注释。
+菜单栏 → **设置…** 打开设置窗口，覆盖全部配置项：布局间距/列宽、动画、焦点环、忽略的 App、快捷键（按下即录入）、**语言**（默认跟随 macOS 系统语言，内置简体中文与英文）。改动即时写回 `config.toml` 并热重载生效，没有"保存"按钮；手改配置文件依然完全支持，外部改动会同步回开着的窗口。注意：从设置窗口保存会按规范格式重写整个文件，值全部保留，但你手写的注释可能被替换为默认注释。
 
 手动配置：
 
@@ -131,10 +131,6 @@ epsilon = 0.0001
 enabled = true
 width = 3          # 蓝紫渐变亮边宽度（1...8）
 glow_radius = 9    # 外辉光半径（0...24）
-
-[compositor]
-enabled = false     # 合成器级动画（SkyLight）。需关闭 SIP 并注入 Dock，
-                    # 见 docs/COMPOSITOR-SETUP.md；payload 未就绪时自动回退 AX
 
 [apps]
 ignore = []         # 不接管的 bundle id，如 ["com.apple.systempreferences"]
@@ -180,7 +176,7 @@ ignore = []         # 不接管的 bundle id，如 ["com.apple.systempreferences
 
 ## 动画实现说明
 
-AX API 没有原生动画能力（真合成器动画需要关 SIP 注入，本项目不做），动画由 60Hz
+AX API 没有原生动画能力，动画由 60Hz
 缓动插值驱动，几项关键工程手段保证流畅：
 
 - 写操作走 **per-App 并行串行队列**：不同 App 同时动，tick 成本是最慢 App 而非总和
@@ -191,17 +187,6 @@ AX API 没有原生动画能力（真合成器动画需要关 SIP 注入，本�
 
 个别重排慢的 App（浏览器、Electron）动画帧率天然低于轻量 App，属预期行为；
 不喜欢动画可在配置 `[animation]` 中关闭。
-
-### 合成器级动画（可选，需关闭 SIP）
-
-若追求 niri 那种真正丝滑的动画，可走 SkyLight 合成器方案：部分关闭 SIP，把
-payload 注入 `Dock.app`，用 Dock 的特权连接以单个 `SLSTransaction` 原子批量移动
-窗口——所有窗口同帧一起动，彻底消除 AX 的"逐窗口跳"。
-
-代价与前提请务必先读 [docs/COMPOSITOR-SETUP.md](docs/COMPOSITOR-SETUP.md)：
-永久降低系统安全性、每次 macOS 大版本更新后大概率需要重新逆向调试、需要你本人在
-恢复模式关 SIP。相关命令：`scrollwm --check-sa`、`sudo scrollwm --load-sa [--force]`。
-未就绪时自动回退 AX 动画，不影响正常使用。
 
 ## 已知限制
 

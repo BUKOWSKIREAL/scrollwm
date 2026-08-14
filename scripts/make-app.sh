@@ -54,11 +54,6 @@ if [ -d "$RES_BUNDLE" ]; then
   cp -R "$RES_BUNDLE" "$APP/Contents/Resources/scrollwm_scrollwm.bundle"
 fi
 
-# 合成器 payload（可选）：存在则一并打进 App，供 --load-sa 安装到 /Library/ScriptingAdditions
-if [ -d dist/ScrollWMSA.osax ]; then
-  cp -R dist/ScrollWMSA.osax "$APP/Contents/Resources/ScrollWMSA.osax"
-fi
-
 # 优先用稳定自签名身份，避免每次 ad-hoc 重打后辅助功能授权失效。
 SIGN_ID="-"
 if [ -n "${SCROLLWM_SIGN_ID:-}" ]; then
